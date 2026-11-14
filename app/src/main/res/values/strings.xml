@@ -1,0 +1,22 @@
+<resources>
+    <string name="app_name">WA Scheduler</string>
+    <string name="new_message">Schedule message</string>
+    <string name="accessibility_label">WA Scheduler – auto send</string>
+    <string name="accessibility_description">Used only to tap the Send button in WhatsApp for messages you scheduled in WA Scheduler. It only watches WhatsApp and WhatsApp Business, and only acts while a scheduled message is being sent. Nothing is read, stored or sent anywhere else — the app has no internet permission.</string>
+    <string name="accessibility_off">Auto-send is off. Enable the WA Scheduler accessibility service so scheduled messages can be sent.</string>
+    <string name="enable">Enable</string>
+    <string name="exact_alarm_off">Allow \"Alarms &amp; reminders\" so messages go out on time.</string>
+    <string name="allow">Allow</string>
+    <string name="empty_list">No scheduled messages yet.\nTap + to schedule one.</string>
+    <string name="phone_hint">Phone number with country code (e.g. 919876543210)</string>
+    <string name="message_hint">Message / caption</string>
+    <string name="add_attachments">Add attachments</string>
+    <string name="clear_attachments">Clear</string>
+    <string name="pick_date">Pick date</string>
+    <string name="pick_time">Pick time</string>
+    <string name="save">Schedule</string>
+    <string name="send_now">Test send now</string>
+    <string name="whatsapp">WhatsApp</string>
+    <string name="whatsapp_business">WhatsApp Business</string>
+    <string name="channel_name">Send results</string>
+</resources>

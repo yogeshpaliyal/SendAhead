@@ -1,0 +1,50 @@
+name: Build debug APK
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Rename APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk wa-scheduler-debug.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wa-scheduler-debug
+          path: wa-scheduler-debug.apk
+
+      - name: Publish "latest master" release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest-master --cleanup-tag --yes || true
+          gh release create latest-master wa-scheduler-debug.apk \
+            --title "latest master" \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --notes "Debug build of ${GITHUB_SHA::7} from master. Signed with the debug keystore committed in this repo (app/debug.keystore), so each new build installs over the previous one."

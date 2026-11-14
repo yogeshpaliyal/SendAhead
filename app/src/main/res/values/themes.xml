@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.WaScheduler" parent="Theme.Material3.DayNight">
+        <item name="colorPrimary">#1B8755</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">#1B8755</item>
+    </style>
+</resources>
