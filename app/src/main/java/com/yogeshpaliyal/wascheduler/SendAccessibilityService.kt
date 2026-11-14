@@ -1,6 +1,8 @@
 package com.yogeshpaliyal.wascheduler
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
+import android.graphics.Path
 import android.app.KeyguardManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
@@ -45,6 +47,9 @@ class SendAccessibilityService : AccessibilityService() {
     private var clicked = false
     /** Only ONE auto-unlock try per message, so a wrong PIN can never cause a lockout. */
     private var unlockAttempted = false
+    /** Swipes done on the lock screen for this message (some phones need a swipe to show the PIN pad). */
+    private var swipeCount = 0
+    private var lastSwipeAt = 0L
 
     private val poll = object : Runnable {
         override fun run() {
@@ -107,6 +112,8 @@ class SendAccessibilityService : AccessibilityService() {
         current = msg
         clicked = false
         unlockAttempted = false
+        swipeCount = 0
+        lastSwipeAt = 0L
         stage = Stage.FIND_CHAT
         stageAt = System.currentTimeMillis()
         MessageStore.updateStatus(this, id, Status.SENDING)
@@ -205,9 +212,17 @@ class SendAccessibilityService : AccessibilityService() {
     }
 
     private fun tryUnlock() {
-        if (unlockAttempted || current == null) return
-        val secret = UnlockSecret.load(this) ?: return
-        val root = keyguardRoot() ?: return
+        if (current == null) return
+        val secret = UnlockSecret.load(this)
+        val root = keyguardRoot()
+        val firstDigit = secret?.value?.firstOrNull { it.isDigit() } ?: '1'
+        val inputVisible = root != null && (findDigitKey(root, firstDigit) != null || findEditable(root) != null)
+        if (!inputVisible) {
+            // Lock screen shows the clock first (Samsung, Xiaomi, …): swipe up to bring up the PIN/password screen.
+            swipeUp()
+            return
+        }
+        if (root == null || secret == null || unlockAttempted) return
         when (secret.type) {
             UnlockSecret.Type.PIN -> {
                 // Wait until the PIN pad is actually on screen.
@@ -232,6 +247,24 @@ class SendAccessibilityService : AccessibilityService() {
                 }, 300)
             }
         }
+    }
+
+    private fun swipeUp() {
+        val now = System.currentTimeMillis()
+        if (swipeCount >= 3 || now - lastSwipeAt < 2_000) return
+        swipeCount++
+        lastSwipeAt = now
+        val dm = resources.displayMetrics
+        val x = dm.widthPixels / 2f
+        val path = Path().apply {
+            moveTo(x, dm.heightPixels * 0.85f)
+            lineTo(x, dm.heightPixels * 0.30f)
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 250))
+            .build()
+        dispatchGesture(gesture, null, null)
+        Log.i(TAG, "Swiped up on lock screen ($swipeCount)")
     }
 
     private fun typePin(pin: String, index: Int) {
