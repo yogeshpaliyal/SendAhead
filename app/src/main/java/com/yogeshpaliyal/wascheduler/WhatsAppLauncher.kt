@@ -21,6 +21,7 @@ object WhatsAppLauncher {
     /** Opens the chat (text only) or the media preview (with attachments) for [msg]. */
     fun buildIntent(ctx: Context, msg: ScheduledMessage): Intent {
         val pkg = msg.packageName
+        if (msg.byName) return buildShareIntent(ctx, msg, withJid = false)
         if (msg.attachments.isEmpty()) {
             val uri = Uri.parse(
                 "https://api.whatsapp.com/send?phone=${msg.phone}&text=${Uri.encode(msg.text)}"
@@ -29,7 +30,24 @@ object WhatsAppLauncher {
                 .setPackage(pkg)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
+        return buildShareIntent(ctx, msg, withJid = true)
+    }
 
+    /** Opens WhatsApp's "Send to…" picker (no jid) so the chat can be chosen by name. */
+    fun buildPickerIntent(pkg: String): Intent = Intent(Intent.ACTION_SEND)
+        .setType("text/plain")
+        .putExtra(Intent.EXTRA_TEXT, "WA Scheduler: picking a chat (this is not sent)")
+        .setPackage(pkg)
+
+    private fun buildShareIntent(ctx: Context, msg: ScheduledMessage, withJid: Boolean): Intent {
+        val pkg = msg.packageName
+        if (msg.attachments.isEmpty()) {
+            return Intent(Intent.ACTION_SEND)
+                .setType("text/plain")
+                .putExtra(Intent.EXTRA_TEXT, msg.text)
+                .setPackage(pkg)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
         val dir = MessageStore.attachmentDir(ctx, msg.id)
         val uris = msg.attachments.map {
             FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", File(dir, it.fileName))
@@ -44,7 +62,7 @@ object WhatsAppLauncher {
         intent.type = commonMime(msg.attachments.map { it.mimeType })
         if (msg.text.isNotBlank()) intent.putExtra(Intent.EXTRA_TEXT, msg.text)
         // Undocumented but long-standing: jumps straight to this chat instead of the contact picker.
-        intent.putExtra("jid", "${msg.phone}@s.whatsapp.net")
+        if (withJid) intent.putExtra("jid", "${msg.phone}@s.whatsapp.net")
         intent.setPackage(pkg)
 
         val clip = ClipData.newRawUri("attachment", uris[0])

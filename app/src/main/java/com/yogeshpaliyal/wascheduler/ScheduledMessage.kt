@@ -35,7 +35,12 @@ data class ScheduledMessage(
     val packageName: String,
     val status: Status = Status.PENDING,
     val error: String? = null,
+    /** If set, send to this chat (contact or group) by its exact WhatsApp name instead of [phone]. */
+    val chatName: String? = null,
 ) {
+    val byName: Boolean get() = !chatName.isNullOrBlank()
+    val targetLabel: String get() = if (byName) chatName!! else "+$phone"
+
     fun toJson(): JSONObject = JSONObject()
         .put("id", id)
         .put("phone", phone)
@@ -45,6 +50,7 @@ data class ScheduledMessage(
         .put("packageName", packageName)
         .put("status", status.name)
         .put("error", error ?: JSONObject.NULL)
+        .put("chatName", chatName ?: JSONObject.NULL)
 
     companion object {
         const val WHATSAPP = "com.whatsapp"
@@ -61,6 +67,7 @@ data class ScheduledMessage(
                 packageName = o.optString("packageName", WHATSAPP),
                 status = runCatching { Status.valueOf(o.getString("status")) }.getOrDefault(Status.PENDING),
                 error = if (o.isNull("error")) null else o.optString("error"),
+                chatName = if (o.isNull("chatName")) null else o.optString("chatName"),
             )
         }
     }

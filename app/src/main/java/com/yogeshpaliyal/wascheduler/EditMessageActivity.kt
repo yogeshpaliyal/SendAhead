@@ -2,6 +2,8 @@ package com.yogeshpaliyal.wascheduler
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.content.Intent
+import android.view.View
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
@@ -47,6 +49,10 @@ class EditMessageActivity : AppCompatActivity() {
             isNew = false
             messageId = existing.id
             binding.phone.setText(existing.phone)
+            if (existing.byName) {
+                binding.targetName.isChecked = true
+                binding.chatName.setText(existing.chatName)
+            }
             binding.message.setText(existing.text)
             attachments += existing.attachments
             if (existing.packageName == ScheduledMessage.WHATSAPP_BUSINESS) binding.appBusiness.isChecked = true
@@ -57,6 +63,10 @@ class EditMessageActivity : AppCompatActivity() {
         ) {
             binding.appBusiness.isChecked = true
         }
+
+        binding.targetGroup.setOnCheckedChangeListener { _, _ -> renderTarget() }
+        binding.pickChat.setOnClickListener { pickChat() }
+        renderTarget()
 
         binding.addAttachments.setOnClickListener { pickFiles.launch(arrayOf("*/*")) }
         binding.clearAttachments.setOnClickListener {
@@ -84,6 +94,46 @@ class EditMessageActivity : AppCompatActivity() {
 
         renderAttachments()
         renderTime()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // Returned from the WhatsApp chat picker; keep the original intent (EXTRA_ID).
+    }
+
+    override fun onResume() {
+        super.onResume()
+        SendAccessibilityService.pickedChatName?.let {
+            SendAccessibilityService.pickedChatName = null
+            binding.targetName.isChecked = true
+            binding.chatName.setText(it)
+            renderTarget()
+        }
+    }
+
+    private fun selectedPackage() =
+        if (binding.appBusiness.isChecked) ScheduledMessage.WHATSAPP_BUSINESS else ScheduledMessage.WHATSAPP
+
+    private fun renderTarget() {
+        val byName = binding.targetName.isChecked
+        binding.chatNameRow.visibility = if (byName) View.VISIBLE else View.GONE
+        binding.phoneLayout.visibility = if (byName) View.GONE else View.VISIBLE
+    }
+
+    private fun pickChat() {
+        val service = SendAccessibilityService.instance
+        if (service == null) {
+            Toast.makeText(this, "Enable the accessibility service first", Toast.LENGTH_LONG).show()
+            return
+        }
+        val pkg = selectedPackage()
+        if (!WhatsAppLauncher.isInstalled(this, pkg)) {
+            Toast.makeText(this, "That WhatsApp app isn't installed", Toast.LENGTH_SHORT).show()
+            return
+        }
+        service.startPicking(pkg)
+        Toast.makeText(this, "Tap the group or contact. Nothing will be sent.", Toast.LENGTH_LONG).show()
+        startActivity(WhatsAppLauncher.buildPickerIntent(pkg))
     }
 
     private fun renderTime() {
@@ -122,9 +172,15 @@ class EditMessageActivity : AppCompatActivity() {
         }
 
     private fun save(sendNow: Boolean) {
-        val phone = binding.phone.text?.toString().orEmpty().filter { it.isDigit() }
+        val byName = binding.targetName.isChecked
+        val chatName = binding.chatName.text?.toString()?.trim().orEmpty()
+        val phone = if (byName) "" else binding.phone.text?.toString().orEmpty().filter { it.isDigit() }
         val text = binding.message.text?.toString().orEmpty()
-        if (phone.length < 8) {
+        if (byName && chatName.isEmpty()) {
+            binding.chatName.error = "Pick a chat or type its exact name"
+            return
+        }
+        if (!byName && phone.length < 8) {
             binding.phone.error = "Enter number with country code, e.g. 919876543210"
             return
         }
@@ -137,7 +193,7 @@ class EditMessageActivity : AppCompatActivity() {
             Toast.makeText(this, "Pick a time in the future", Toast.LENGTH_SHORT).show()
             return
         }
-        val pkg = if (binding.appBusiness.isChecked) ScheduledMessage.WHATSAPP_BUSINESS else ScheduledMessage.WHATSAPP
+        val pkg = selectedPackage()
         if (!WhatsAppLauncher.isInstalled(this, pkg)) {
             Toast.makeText(this, "That WhatsApp app isn't installed", Toast.LENGTH_SHORT).show()
             return
@@ -151,6 +207,7 @@ class EditMessageActivity : AppCompatActivity() {
             timeMillis = time,
             packageName = pkg,
             status = Status.PENDING,
+            chatName = if (byName) chatName else null,
         )
         MessageStore.upsert(this, msg)
         // Remove files that were picked and then cleared.

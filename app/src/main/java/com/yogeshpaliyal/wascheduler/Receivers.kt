@@ -18,7 +18,7 @@ class AlarmReceiver : BroadcastReceiver() {
         if (service == null) {
             val err = "Accessibility service is off"
             MessageStore.updateStatus(context, id, Status.FAILED, err)
-            Notifier.notify(context, id, "Not sent to +${msg.phone}", "$err. Open WA Scheduler and enable it.")
+            Notifier.notify(context, id, "Not sent to ${msg.targetLabel}", "$err. Open WA Scheduler and enable it.")
             return
         }
         service.enqueue(id)

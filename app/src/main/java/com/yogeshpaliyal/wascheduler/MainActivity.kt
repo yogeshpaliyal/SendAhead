@@ -7,9 +7,18 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.InputType
 import android.view.LayoutInflater
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
+import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -21,6 +30,10 @@ import java.text.DateFormat
 import java.util.Date
 
 class MainActivity : AppCompatActivity() {
+
+    companion object {
+        private const val MENU_AUTO_UNLOCK = 1
+    }
 
     private lateinit var binding: ActivityMainBinding
     private val adapter = MessageAdapter()
@@ -51,6 +64,78 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menu.add(0, MENU_AUTO_UNLOCK, 0, "Auto-unlock (PIN / password)")
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        if (item.itemId == MENU_AUTO_UNLOCK) {
+            showAutoUnlockDialog()
+            return true
+        }
+        return super.onOptionsItemSelected(item)
+    }
+
+    private fun showAutoUnlockDialog() {
+        val pad = (20 * resources.displayMetrics.density).toInt()
+        val enabled = UnlockSecret.isEnabled(this)
+        val info = TextView(this).apply {
+            text = (if (enabled) "Status: ON\n\n" else "Status: OFF\n\n") +
+                "If the phone is locked when a message is due, the accessibility service types this PIN/password " +
+                "on the lock screen.\n\n" +
+                "• Stored encrypted with a key in the Android Keystore; app backups are disabled.\n" +
+                "• Anyone who can use this app's code on your phone could unlock it. Use only on your own phone.\n" +
+                "• Only ONE try per message. If it fails, auto-unlock turns itself off.\n" +
+                "• Patterns and fingerprint-only locks are not supported."
+        }
+        val pin = RadioButton(this).apply { id = View.generateViewId(); text = "PIN"; isChecked = true }
+        val password = RadioButton(this).apply { id = View.generateViewId(); text = "Password" }
+        val input = EditText(this).apply {
+            hint = "Enter PIN"
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        }
+        val type = RadioGroup(this).apply {
+            orientation = RadioGroup.HORIZONTAL
+            addView(pin)
+            addView(password)
+            setOnCheckedChangeListener { _, checked ->
+                if (checked == password.id) {
+                    input.hint = "Enter password"
+                    input.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                } else {
+                    input.hint = "Enter PIN"
+                    input.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+                }
+            }
+        }
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, 0)
+            addView(info)
+            addView(type)
+            addView(input)
+        }
+        val builder = AlertDialog.Builder(this)
+            .setTitle("Auto-unlock")
+            .setView(layout)
+            .setPositiveButton("Save") { _, _ ->
+                val value = input.text.toString()
+                if (value.isEmpty()) return@setPositiveButton
+                val t = if (password.isChecked) UnlockSecret.Type.PASSWORD else UnlockSecret.Type.PIN
+                UnlockSecret.save(this, UnlockSecret.Secret(t, value))
+                Toast.makeText(this, "Auto-unlock on. Test it with a message 2 min from now.", Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+        if (enabled) {
+            builder.setNeutralButton("Turn off") { _, _ ->
+                UnlockSecret.clear(this)
+                Toast.makeText(this, "Auto-unlock off", Toast.LENGTH_SHORT).show()
+            }
+        }
+        builder.show()
     }
 
     override fun onResume() {
@@ -117,7 +202,7 @@ class MainActivity : AppCompatActivity() {
         override fun onBindViewHolder(holder: VH, position: Int) {
             val m = items[position]
             val b = holder.b
-            b.phone.text = "+${m.phone}"
+            b.phone.text = m.targetLabel
             b.time.text = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(m.timeMillis))
             b.text.text = m.text.ifBlank { "(no text)" }
             val app = if (m.packageName == ScheduledMessage.WHATSAPP_BUSINESS) "WhatsApp Business" else "WhatsApp"

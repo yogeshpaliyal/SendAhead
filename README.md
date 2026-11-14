@@ -3,6 +3,8 @@
 Open-source, fully offline WhatsApp message scheduler for Android, with attachments.
 
 - Schedule text, images, videos, PDFs or any file to a WhatsApp / WhatsApp Business number
+- Send to **groups and saved contacts by name**, with a picker that uses WhatsApp's own chat list
+- Optional **auto-unlock** with your PIN/password (off by default)
 - No internet permission, no account, no server: messages and files stay on the phone
 - Uses an Accessibility Service only to tap WhatsApp's **Send** button at the scheduled time
 
@@ -21,6 +23,19 @@ The latest build from `master` is always at
 4. Tap **+**, enter the number with country code (e.g. `919876543210`), message, attachments, date and time.
    Use **Test send now** to check that it works on your phone.
 
+## Groups / contacts by name
+
+Choose **Group / contact** and tap **Pick**. WhatsApp's "Send to" list opens. Tap the chat and you're brought back
+with its name filled in (nothing is sent). At send time the app opens the same list, searches for that exact name,
+selects it and taps Send. Chat names must be unique: if two chats share a name, the first match is used.
+
+## Auto-unlock (optional, advanced)
+
+Menu → **Auto-unlock**. If the phone is locked with a PIN or password when a message is due, the accessibility service
+types it on the lock screen. The secret is AES-GCM encrypted with a key held in the Android Keystore, and app backups
+are disabled. It makes only **one attempt per message**, and if that fails, auto-unlock switches itself off so a wrong
+PIN can never lock you out. Patterns and fingerprint-only locks are not supported. Only use this on your own phone.
+
 ## How it works
 
 1. `AlarmManager` fires an exact alarm at the scheduled time.
@@ -32,8 +47,8 @@ The latest build from `master` is always at
 ## Limitations
 
 - **Lock screen:** with *None* or *Swipe* the app turns the screen on, dismisses the lock screen and sends automatically.
-  With a PIN, pattern or password, Android shows the unlock prompt. The message is sent if you unlock within ~45 seconds,
-  otherwise it's marked failed and you can reschedule it. No app can bypass a secure lock screen.
+  With a PIN/password and auto-unlock off, Android shows the unlock prompt and the message is sent if you unlock within
+  about 45 seconds. Otherwise it's marked failed and you can reschedule it.
 - Battery savers (especially on Xiaomi, Oppo, Vivo and similar phones) can kill the accessibility service. Set the app's battery usage to *Unrestricted*.
 - WhatsApp UI updates can break the Send button lookup. Please open an issue if that happens.
 - The number must be on WhatsApp. The target chat doesn't need to be in your contacts.
