@@ -1,7 +1,9 @@
 package com.yogeshpaliyal.wascheduler
 
 import android.accessibilityservice.AccessibilityService
+import android.app.KeyguardManager
 import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -46,7 +48,7 @@ class SendAccessibilityService : AccessibilityService() {
         instance = this
     }
 
-    override fun onUnbind(intent: android.content.Intent?): Boolean {
+    override fun onUnbind(intent: Intent?): Boolean {
         instance = null
         return super.onUnbind(intent)
     }
@@ -82,7 +84,17 @@ class SendAccessibilityService : AccessibilityService() {
         clicked = false
         MessageStore.updateStatus(this, id, Status.SENDING)
         try {
-            startActivity(WhatsAppLauncher.buildIntent(this, msg))
+            val keyguard = getSystemService(KeyguardManager::class.java)
+            if (keyguard.isKeyguardLocked) {
+                // Dismiss the lock screen first (works for Swipe; shows PIN prompt for secure locks).
+                startActivity(
+                    Intent(this, UnlockActivity::class.java)
+                        .putExtra(UnlockActivity.EXTRA_ID, msg.id)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+                )
+            } else {
+                startActivity(WhatsAppLauncher.buildIntent(this, msg))
+            }
         } catch (e: ActivityNotFoundException) {
             finish(msg, success = false, error = "Could not open WhatsApp")
             return

@@ -36,6 +36,17 @@
             android:exported="false"
             android:label="@string/new_message" />
 
+        <activity
+            android:name=".UnlockActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:showWhenLocked="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.WaScheduler.Transparent"
+            android:turnScreenOn="true"
+            tools:targetApi="27" />
+
         <receiver
             android:name=".AlarmReceiver"
             android:exported="false" />

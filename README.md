@@ -31,8 +31,9 @@ The latest build from `master` is always at
 
 ## Limitations
 
-- The phone must be on, and **unlocked or without a secure lock screen**. WhatsApp can't be driven behind a PIN/pattern lock.
-  The app wakes the screen, but it can't unlock it.
+- **Lock screen:** with *None* or *Swipe* the app turns the screen on, dismisses the lock screen and sends automatically.
+  With a PIN, pattern or password, Android shows the unlock prompt. The message is sent if you unlock within ~45 seconds,
+  otherwise it's marked failed and you can reschedule it. No app can bypass a secure lock screen.
 - Battery savers (especially on Xiaomi, Oppo, Vivo and similar phones) can kill the accessibility service. Set the app's battery usage to *Unrestricted*.
 - WhatsApp UI updates can break the Send button lookup. Please open an issue if that happens.
 - The number must be on WhatsApp. The target chat doesn't need to be in your contacts.
