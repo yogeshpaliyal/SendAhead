@@ -6,6 +6,12 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import android.widget.Button
+import android.view.Gravity
 import android.provider.Settings
 import android.text.InputType
 import android.view.LayoutInflater
@@ -33,6 +39,8 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val MENU_AUTO_UNLOCK = 1
+        private const val MENU_SHARE_LOG = 2
+        private const val MENU_CLEAR_LOG = 3
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -52,14 +60,6 @@ class MainActivity : AppCompatActivity() {
         binding.fab.setOnClickListener {
             startActivity(Intent(this, EditMessageActivity::class.java))
         }
-        binding.enableAccessibility.setOnClickListener { showAccessibilityExplainer() }
-        binding.allowAlarms.setOnClickListener {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                startActivity(
-                    Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName"))
-                )
-            }
-        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -68,13 +68,20 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menu.add(0, MENU_AUTO_UNLOCK, 0, "Auto-unlock (PIN / password)")
+        menu.add(0, MENU_SHARE_LOG, 1, "Share debug log")
+        menu.add(0, MENU_CLEAR_LOG, 2, "Clear debug log")
         return true
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        if (item.itemId == MENU_AUTO_UNLOCK) {
-            showAutoUnlockDialog()
-            return true
+        when (item.itemId) {
+            MENU_AUTO_UNLOCK -> { showAutoUnlockDialog(); return true }
+            MENU_SHARE_LOG -> { shareLog(); return true }
+            MENU_CLEAR_LOG -> {
+                DebugLog.clear(this)
+                Toast.makeText(this, "Debug log cleared", Toast.LENGTH_SHORT).show()
+                return true
+            }
         }
         return super.onOptionsItemSelected(item)
     }
@@ -144,14 +151,104 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refresh() {
-        binding.accessibilityBanner.visibility = if (isAccessibilityEnabled()) View.GONE else View.VISIBLE
-        binding.alarmBanner.visibility = if (Scheduler.canScheduleExact(this)) View.GONE else View.VISIBLE
+        renderSetup()
         val items = MessageStore.all(this).sortedWith(
             compareBy<ScheduledMessage> { it.status != Status.PENDING && it.status != Status.SENDING }
                 .thenBy { if (it.status == Status.PENDING) it.timeMillis else -it.timeMillis }
         )
         adapter.submit(items)
         binding.empty.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
+    }
+
+    private data class SetupItem(val ok: Boolean, val title: String, val action: () -> Unit)
+
+    /** SKEDit-style checklist of everything the phone needs for reliable sending. */
+    private fun renderSetup() {
+        val pm = getSystemService(PowerManager::class.java)
+        val items = mutableListOf(
+            SetupItem(isAccessibilityEnabled(), "Accessibility service (required)") { showAccessibilityExplainer() },
+            SetupItem(pm.isIgnoringBatteryOptimizations(packageName), "Run in background / battery unrestricted (required)") {
+                try {
+                    startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+                } catch (_: Exception) {
+                    startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                }
+            },
+            SetupItem(Settings.canDrawOverlays(this), "Display over other apps (needed on many phones)") {
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            },
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            items += SetupItem(Scheduler.canScheduleExact(this), "Alarms & reminders (on-time sending)") {
+                startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName")))
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+            items += SetupItem(granted, "Notifications (sent / failed alerts)") {
+                startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
+            }
+        }
+        val missing = items.filterNot { it.ok }
+        val maker = Build.MANUFACTURER.lowercase()
+        val aggressiveOem = listOf("xiaomi", "redmi", "poco", "oppo", "vivo", "realme", "oneplus", "tecno", "infinix", "huawei", "honor")
+            .any { maker.contains(it) }
+
+        val list = binding.setupList
+        list.removeAllViews()
+        val pad = (6 * resources.displayMetrics.density).toInt()
+        list.addView(TextView(this).apply {
+            text = "Finish setup so messages are sent reliably"
+            setPadding(0, 0, 0, pad)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        })
+        missing.forEach { item ->
+            list.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(TextView(context).apply {
+                    text = "✗  ${item.title}"
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                addView(Button(context).apply {
+                    text = "Fix"
+                    setOnClickListener { item.action() }
+                })
+            })
+        }
+        if (aggressiveOem) {
+            list.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(TextView(context).apply {
+                    text = "ⓘ  ${Build.MANUFACTURER}: in App info enable Autostart and \"Display pop-up windows while running in background\""
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                addView(Button(context).apply {
+                    text = "Open"
+                    setOnClickListener {
+                        startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+                    }
+                })
+            })
+        }
+        binding.setupCard.visibility = if (missing.isEmpty() && !aggressiveOem) View.GONE else View.VISIBLE
+    }
+
+    private fun shareLog() {
+        val f = DebugLog.file(this)
+        if (!f.exists() || f.length() == 0L) {
+            Toast.makeText(this, "Debug log is empty. Try a send first.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val uri = FileProvider.getUriForFile(this, "$packageName.files", f)
+        val send = Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_STREAM, uri)
+            .putExtra(Intent.EXTRA_SUBJECT, "WA Scheduler debug log")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        startActivity(Intent.createChooser(send, "Share debug log (contains screen text from WhatsApp)"))
     }
 
     private fun isAccessibilityEnabled(): Boolean {

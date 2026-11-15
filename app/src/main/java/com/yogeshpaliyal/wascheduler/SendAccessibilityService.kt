@@ -56,6 +56,26 @@ class SendAccessibilityService : AccessibilityService() {
     private fun norm(s: CharSequence?): String = if (s == null) "" else clean(s).lowercase()
 
     private val handler = Handler(Looper.getMainLooper())
+
+    private fun log(m: String) {
+        Log.i(TAG, m)
+        DebugLog.log(this, m)
+    }
+
+    private fun dumpScreen(reason: String) {
+        val active = rootInActiveWindow
+        val sb = StringBuilder("SCREEN DUMP ($reason): active=${active?.packageName} locked=${isLocked()}\n")
+        sb.append(DebugLog.dump(active))
+        runCatching {
+            windows.forEach { w ->
+                val r = w.root
+                if (r != null && r.packageName != active?.packageName) {
+                    sb.append("-- window ${r.packageName} type=${w.type}\n").append(DebugLog.dump(r, 80))
+                }
+            }
+        }
+        DebugLog.log(this, sb.toString())
+    }
     private val queue = ArrayDeque<Long>()
     private var current: ScheduledMessage? = null
     private var clicked = false
@@ -74,6 +94,7 @@ class SendAccessibilityService : AccessibilityService() {
     }
 
     private val timeout = Runnable {
+        current?.let { dumpScreen("timeout, stage=$stage") }
         current?.let {
             val error = when {
                 isLocked() && unlockAttempted -> "Phone stayed locked (auto-unlock didn't work)"
@@ -91,6 +112,7 @@ class SendAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        DebugLog.log(this, "Accessibility service connected")
         instance = this
     }
 
@@ -137,6 +159,7 @@ class SendAccessibilityService : AccessibilityService() {
         typedSearch = false
         lastSeen = emptyList()
         MessageStore.updateStatus(this, id, Status.SENDING)
+        log("Start send id=$id to=${msg.targetLabel} pkg=${msg.packageName} files=${msg.attachments.size} locked=${isLocked()}")
         try {
             val keyguard = getSystemService(KeyguardManager::class.java)
             if (keyguard.isKeyguardLocked) {
@@ -186,7 +209,7 @@ class SendAccessibilityService : AccessibilityService() {
         if (name.isNullOrBlank() || name.length > 100 || name.equals("Search", true)) return true
         pickingPkg = null
         pickedChatName = name
-        Log.i(TAG, "Picked chat: $name")
+        log("Picked chat: '$name' (event text=${event.text}, id-based=${byId != null})")
         // Bring the edit screen back (finishes WhatsApp's picker if it's in our task) — nothing is sent.
         startActivity(
             Intent(this, EditMessageActivity::class.java).addFlags(
@@ -200,6 +223,9 @@ class SendAccessibilityService : AccessibilityService() {
         if (event != null && current == null && capturePick(event)) return
         val msg = current ?: return
         if (clicked) return
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            log("Window: ${event.packageName} / ${event.className}")
+        }
         val pkg = event?.packageName?.toString() ?: return
         if (pkg in KEYGUARD_PKGS) {
             if (isLocked()) tryUnlock()
@@ -223,7 +249,7 @@ class SendAccessibilityService : AccessibilityService() {
         val clickable = clickableAncestor(target) ?: return
         if (clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
             clicked = true
-            Log.i(TAG, "Clicked send for ${msg.id}")
+            log("Clicked send (${target.viewIdResourceName ?: target.contentDescription}) for ${msg.id}")
             // Give WhatsApp a moment to actually send before leaving the chat.
             handler.postDelayed({
                 finish(msg, success = true, error = null)
@@ -258,6 +284,7 @@ class SendAccessibilityService : AccessibilityService() {
                 // Wait until the PIN pad is actually on screen.
                 if (secret.value.isEmpty() || findDigitKey(root, secret.value[0]) == null) return
                 unlockAttempted = true
+                log("Auto-unlock: typing PIN (${secret.value.length} digits)")
                 typePin(secret.value, 0)
             }
             UnlockSecret.Type.PASSWORD -> {
@@ -294,7 +321,7 @@ class SendAccessibilityService : AccessibilityService() {
             .addStroke(GestureDescription.StrokeDescription(path, 0, 250))
             .build()
         dispatchGesture(gesture, null, null)
-        Log.i(TAG, "Swiped up on lock screen ($swipeCount)")
+        log("Swiped up on lock screen ($swipeCount)")
     }
 
     private fun typePin(pin: String, index: Int) {
@@ -315,6 +342,8 @@ class SendAccessibilityService : AccessibilityService() {
 
     private fun checkUnlockResult() {
         handler.postDelayed({
+            log("Auto-unlock result: locked=${isLocked()}")
+            if (isLocked()) dumpScreen("after auto-unlock")
             if (isLocked() && UnlockSecret.isEnabled(this)) {
                 // Never retry a possibly wrong secret: turn the feature off and tell the user.
                 UnlockSecret.clear(this)
@@ -385,6 +414,7 @@ class SendAccessibilityService : AccessibilityService() {
                     if (target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                         stage = Stage.SELECTED
                         stageAt = now
+                        log("Name flow: clicked chat row '${clean(row.text ?: row.contentDescription ?: "")}'")
                     }
                     return
                 }
@@ -397,8 +427,11 @@ class SendAccessibilityService : AccessibilityService() {
                                 norm(n.contentDescription) == "search" || norm(n.text).startsWith("search")
                             }
                         if (search != null) {
-                            clickableAncestor(search)?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                            val ok = clickableAncestor(search)?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                             searchClicks++
+                            log("Name flow: search click #$searchClicks ok=$ok")
+                        } else {
+                            log("Name flow: no row and no search button yet. Visible: ${lastSeen.joinToString(" | ").take(300)}")
                         }
                     }
                     stage = Stage.SEARCHING
@@ -415,6 +448,7 @@ class SendAccessibilityService : AccessibilityService() {
                         },
                     )
                     if (ok) typedSearch = true
+                    log("Name flow: typed '$name' into search ok=$ok")
                 }
             }
             Stage.SELECTED -> {
@@ -423,6 +457,7 @@ class SendAccessibilityService : AccessibilityService() {
                 if (clickableAncestor(send)?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) {
                     stage = Stage.SENT_ONCE
                     stageAt = now
+                    log("Name flow: clicked send in picker")
                 }
             }
             Stage.SENT_ONCE -> {
@@ -516,6 +551,7 @@ class SendAccessibilityService : AccessibilityService() {
     }
 
     private fun finish(msg: ScheduledMessage, success: Boolean, error: String?) {
+        log("Finish id=${msg.id} success=$success error=$error")
         handler.removeCallbacks(poll)
         handler.removeCallbacks(timeout)
         if (success) {

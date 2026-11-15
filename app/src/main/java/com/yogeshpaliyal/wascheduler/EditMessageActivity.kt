@@ -6,7 +6,9 @@ import android.content.Intent
 import android.view.View
 import android.net.Uri
 import android.os.Bundle
+import android.provider.ContactsContract
 import android.provider.OpenableColumns
+import android.telephony.TelephonyManager
 import android.text.format.DateFormat as AndroidDateFormat
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,6 +33,42 @@ class EditMessageActivity : AppCompatActivity() {
         add(Calendar.MINUTE, 5)
         set(Calendar.SECOND, 0)
         set(Calendar.MILLISECOND, 0)
+    }
+
+    private val pickContact = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        val uri = res.data?.data ?: return@registerForActivityResult
+        try {
+            contentResolver.query(
+                uri,
+                arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER, ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME),
+                null, null, null,
+            )?.use { c ->
+                if (c.moveToFirst()) {
+                    val number = toWhatsAppNumber(c.getString(0).orEmpty())
+                    binding.targetPhone.isChecked = true
+                    binding.phone.setText(number)
+                    renderTarget()
+                    Toast.makeText(this, "${c.getString(1)}: +$number — check the country code", Toast.LENGTH_LONG).show()
+                }
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Couldn't read contact: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** "+91 98765 43210" / "098765 43210" / "9876543210" -> "919876543210" (best effort). */
+    private fun toWhatsAppNumber(raw: String): String {
+        val trimmed = raw.trim()
+        var digits = trimmed.filter { it.isDigit() }
+        if (trimmed.startsWith("+")) return digits
+        if (digits.startsWith("00")) return digits.drop(2)
+        val iso = (getSystemService(TelephonyManager::class.java)?.simCountryIso ?: "").lowercase()
+        val cc = mapOf(
+            "in" to "91", "us" to "1", "ca" to "1", "gb" to "44", "ae" to "971", "au" to "61",
+            "de" to "49", "sg" to "65", "sa" to "966", "pk" to "92", "bd" to "880", "np" to "977",
+        )[iso] ?: return digits
+        if (digits.startsWith("0")) digits = digits.drop(1)
+        return if (digits.startsWith(cc) && digits.length > 10) digits else cc + digits
     }
 
     private val pickFiles = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -66,6 +104,13 @@ class EditMessageActivity : AppCompatActivity() {
 
         binding.targetGroup.setOnCheckedChangeListener { _, _ -> renderTarget() }
         binding.pickChat.setOnClickListener { pickChat() }
+        binding.pickContact.setOnClickListener {
+            try {
+                pickContact.launch(Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI))
+            } catch (e: Exception) {
+                Toast.makeText(this, "No contacts app found", Toast.LENGTH_SHORT).show()
+            }
+        }
         renderTarget()
 
         binding.addAttachments.setOnClickListener { pickFiles.launch(arrayOf("*/*")) }
@@ -118,6 +163,7 @@ class EditMessageActivity : AppCompatActivity() {
         val byName = binding.targetName.isChecked
         binding.chatNameRow.visibility = if (byName) View.VISIBLE else View.GONE
         binding.phoneLayout.visibility = if (byName) View.GONE else View.VISIBLE
+        binding.pickContact.visibility = if (byName) View.GONE else View.VISIBLE
     }
 
     private fun pickChat() {

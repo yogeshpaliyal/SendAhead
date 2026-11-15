@@ -28,7 +28,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="16dp"
-                android:text="Group / contact" />
+                android:text="Group (by name)" />
         </RadioGroup>
 
         <LinearLayout
@@ -73,6 +73,13 @@
                 android:layout_height="wrap_content"
                 android:inputType="phone" />
         </com.google.android.material.textfield.TextInputLayout>
+
+        <Button
+            android:id="@+id/pickContact"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Pick from contacts" />
 
         <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
