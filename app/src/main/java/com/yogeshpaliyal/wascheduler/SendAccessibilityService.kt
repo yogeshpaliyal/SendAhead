@@ -40,6 +40,20 @@ class SendAccessibilityService : AccessibilityService() {
     private var stage = Stage.FIND_CHAT
     private var stageAt = 0L
     private var pickingPkg: String? = null
+    private var searchClicks = 0
+    private var typedSearch = false
+    /** What the name flow last saw on screen, for a useful error message. */
+    private var lastSeen: List<String> = emptyList()
+
+    /** Removes invisible direction marks WhatsApp wraps names in, and collapses spaces. */
+    private fun clean(s: CharSequence): String =
+        s.toString()
+            .replace(Regex("[\\p{Cf}\\u200B-\\u200F\\u202A-\\u202E\\u2066-\\u2069\\uFEFF]"), "")
+            .replace('\u00A0', ' ')
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+    private fun norm(s: CharSequence?): String = if (s == null) "" else clean(s).lowercase()
 
     private val handler = Handler(Looper.getMainLooper())
     private val queue = ArrayDeque<Long>()
@@ -65,7 +79,10 @@ class SendAccessibilityService : AccessibilityService() {
                 isLocked() && unlockAttempted -> "Phone stayed locked (auto-unlock didn't work)"
                 isLocked() -> "Phone was locked"
                 it.byName && (stage == Stage.FIND_CHAT || stage == Stage.SEARCHING) ->
-                    "Chat \"${it.chatName}\" not found in WhatsApp"
+                    "Chat \"${it.chatName}\" not found in WhatsApp " +
+                        "(search ${if (searchClicks > 0) "opened" else "not found"}, " +
+                        "${if (typedSearch) "name typed" else "name not typed"}). " +
+                        "On screen: ${lastSeen.joinToString(" | ").take(400)}"
                 else -> "Send button not found in time"
             }
             finish(it, success = false, error = error)
@@ -116,6 +133,9 @@ class SendAccessibilityService : AccessibilityService() {
         lastSwipeAt = 0L
         stage = Stage.FIND_CHAT
         stageAt = System.currentTimeMillis()
+        searchClicks = 0
+        typedSearch = false
+        lastSeen = emptyList()
         MessageStore.updateStatus(this, id, Status.SENDING)
         try {
             val keyguard = getSystemService(KeyguardManager::class.java)
@@ -151,8 +171,18 @@ class SendAccessibilityService : AccessibilityService() {
         val pkg = pickingPkg ?: return false
         if (event.packageName?.toString() != pkg) return false
         if (event.eventType != AccessibilityEvent.TYPE_VIEW_CLICKED) return true
-        val name = event.text.firstOrNull { !it.isNullOrBlank() }?.toString()?.trim()
-            ?: event.source?.let { src -> findNode(src) { !it.isEditable && !it.text.isNullOrBlank() }?.text?.toString()?.trim() }
+        val src = event.source
+        val byId = src?.let { root ->
+            findNode(root) { n ->
+                val id = n.viewIdResourceName.orEmpty()
+                !n.text.isNullOrBlank() && (id.endsWith("row_name") || id.endsWith("contact_name") || id.endsWith("_name"))
+            }?.text
+        }
+        val raw = byId
+            ?: src?.let { root -> findNode(root) { !it.isEditable && !it.text.isNullOrBlank() }?.text }
+            ?: event.text.firstOrNull { !it.isNullOrBlank() }
+            ?: src?.contentDescription
+        val name = raw?.let { clean(it) }
         if (name.isNullOrBlank() || name.length > 100 || name.equals("Search", true)) return true
         pickingPkg = null
         pickedChatName = name
@@ -347,9 +377,9 @@ class SendAccessibilityService : AccessibilityService() {
         val now = System.currentTimeMillis()
         when (stage) {
             Stage.FIND_CHAT, Stage.SEARCHING -> {
-                val row = findNode(root) { n ->
-                    !n.isEditable && n.text?.toString()?.trim()?.equals(name, ignoreCase = true) == true
-                }
+                val wanted = norm(name)
+                lastSeen = visibleTexts(root)
+                val row = findChatRow(root, wanted)
                 if (row != null) {
                     val target = clickableAncestor(row) ?: return
                     if (target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
@@ -358,23 +388,33 @@ class SendAccessibilityService : AccessibilityService() {
                     }
                     return
                 }
-                if (stage == Stage.FIND_CHAT) {
-                    val search = root.findAccessibilityNodeInfosByViewId("${msg.packageName}:id/menuitem_search")
-                        ?.firstOrNull { it.isVisibleToUser }
-                        ?: findNode(root) { it.contentDescription?.toString()?.trim().equals("Search", true) }
-                    search?.let { clickableAncestor(it) }?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                val field = findEditable(root)
+                if (stage == Stage.FIND_CHAT || (field == null && now - stageAt > 4_000 && searchClicks < 3)) {
+                    if (field == null) {
+                        val search = root.findAccessibilityNodeInfosByViewId("${msg.packageName}:id/menuitem_search")
+                            ?.firstOrNull { it.isVisibleToUser }
+                            ?: findNode(root) { n ->
+                                norm(n.contentDescription) == "search" || norm(n.text).startsWith("search")
+                            }
+                        if (search != null) {
+                            clickableAncestor(search)?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                            searchClicks++
+                        }
+                    }
                     stage = Stage.SEARCHING
                     stageAt = now
                     return
                 }
-                val field = findEditable(root) ?: return
-                if (field.text?.toString() != name) {
-                    field.performAction(
+                if (field == null) return
+                if (norm(field.text) != wanted) {
+                    field.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                    val ok = field.performAction(
                         AccessibilityNodeInfo.ACTION_SET_TEXT,
                         Bundle().apply {
                             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, name)
                         },
                     )
+                    if (ok) typedSearch = true
                 }
             }
             Stage.SELECTED -> {
@@ -401,6 +441,43 @@ class SendAccessibilityService : AccessibilityService() {
                 }, 2_000)
             }
         }
+    }
+
+    /**
+     * Finds the chat row for [wanted] (already normalised). Exact match on text or content
+     * description first; then a unique row whose label starts with the name (e.g. "Family, 12 members").
+     */
+    private fun findChatRow(root: AccessibilityNodeInfo, wanted: String): AccessibilityNodeInfo? {
+        if (wanted.isEmpty()) return null
+        findNode(root) { n ->
+            !n.isEditable && (norm(n.text) == wanted || norm(n.contentDescription) == wanted)
+        }?.let { return it }
+        val prefixed = mutableListOf<AccessibilityNodeInfo>()
+        collect(root) { n ->
+            !n.isEditable && listOf(norm(n.text), norm(n.contentDescription)).any {
+                it.startsWith("$wanted ") || it.startsWith("$wanted,")
+            }
+        }.let { prefixed += it }
+        return prefixed.singleOrNull()
+    }
+
+    private fun visibleTexts(root: AccessibilityNodeInfo): List<String> =
+        collect(root) { !it.text.isNullOrBlank() && !it.isEditable }
+            .mapNotNull { it.text?.let { t -> clean(t) } }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .take(15)
+
+    private fun collect(
+        node: AccessibilityNodeInfo?,
+        depth: Int = 0,
+        out: MutableList<AccessibilityNodeInfo> = mutableListOf(),
+        predicate: (AccessibilityNodeInfo) -> Boolean,
+    ): List<AccessibilityNodeInfo> {
+        if (node == null || depth > 40) return out
+        if (node.isVisibleToUser && predicate(node)) out += node
+        for (i in 0 until node.childCount) collect(node.getChild(i), depth + 1, out, predicate)
+        return out
     }
 
     private fun findSendButton(root: AccessibilityNodeInfo, pkg: String): AccessibilityNodeInfo? {
