@@ -1,4 +1,4 @@
-package com.yogeshpaliyal.wascheduler
+package com.yogeshpaliyal.sendahead
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -18,7 +18,7 @@ class AlarmReceiver : BroadcastReceiver() {
         if (service == null) {
             val err = "Accessibility service is off"
             MessageStore.updateStatus(context, id, Status.FAILED, err)
-            Notifier.notify(context, id, "Not sent to ${msg.targetLabel}", "$err. Open WA Scheduler and enable it.")
+            Notifier.notify(context, id, "Not sent to ${msg.targetLabel}", "$err. Open Sendahead and enable it.")
             return
         }
         service.enqueue(id)
@@ -30,7 +30,7 @@ class AlarmReceiver : BroadcastReceiver() {
         if (pm.isInteractive) return
         val wl = pm.newWakeLock(
             PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
-            "WaScheduler:send",
+            "Sendahead:send",
         )
         wl.acquire(60_000L)
     }

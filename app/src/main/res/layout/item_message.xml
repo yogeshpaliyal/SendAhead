@@ -31,7 +31,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:maxLines="1"
-                android:textAppearance="@style/TextAppearance.WaScheduler.Time" />
+                android:textAppearance="@style/TextAppearance.Sendahead.Time" />
 
             <TextView
                 android:id="@+id/meridiem"

@@ -1,6 +1,9 @@
-# WA Scheduler
+# Sendahead
 
-Open-source, fully offline WhatsApp message scheduler for Android, with attachments.
+Write it now, send it ahead of time. An open-source, fully offline scheduler for WhatsApp messages on Android, with attachments.
+
+> Sendahead is an independent project. It is not affiliated with, endorsed by or sponsored by WhatsApp or Meta.
+> WhatsApp is a trademark of WhatsApp LLC.
 
 - Schedule text, images, videos, PDFs or any file to a WhatsApp / WhatsApp Business number
 - Send to **groups and saved contacts by name**, with a picker that uses WhatsApp's own chat list
@@ -16,7 +19,7 @@ The latest build from `master` is always at
 ## Setup
 
 1. Install the APK.
-2. Open the app and tap **Enable** → turn on *WA Scheduler – auto send* in Accessibility settings.
+2. Open the app and tap **Enable** → turn on *Sendahead auto-send* in Accessibility settings.
    On Android 13+ a sideloaded app's accessibility toggle may be greyed out. Open
    *App info → ⋮ → Allow restricted settings* first.
 3. Allow **Alarms & reminders** if asked, so messages go out on time.

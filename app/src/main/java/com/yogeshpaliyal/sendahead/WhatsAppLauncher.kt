@@ -1,4 +1,4 @@
-package com.yogeshpaliyal.wascheduler
+package com.yogeshpaliyal.sendahead
 
 import android.content.ClipData
 import android.content.Context
@@ -36,7 +36,7 @@ object WhatsAppLauncher {
     /** Opens WhatsApp's "Send to…" picker (no jid) so the chat can be chosen by name. */
     fun buildPickerIntent(pkg: String): Intent = Intent(Intent.ACTION_SEND)
         .setType("text/plain")
-        .putExtra(Intent.EXTRA_TEXT, "WA Scheduler: picking a chat (this is not sent)")
+        .putExtra(Intent.EXTRA_TEXT, "Sendahead: picking a chat (this is not sent)")
         .setPackage(pkg)
 
     private fun buildShareIntent(ctx: Context, msg: ScheduledMessage, withJid: Boolean): Intent {

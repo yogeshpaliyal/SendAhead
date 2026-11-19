@@ -1,4 +1,4 @@
-package com.yogeshpaliyal.wascheduler
+package com.yogeshpaliyal.sendahead
 
 import android.content.Intent
 import android.view.View
@@ -20,7 +20,7 @@ import com.google.android.material.timepicker.TimeFormat
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
-import com.yogeshpaliyal.wascheduler.databinding.ActivityEditMessageBinding
+import com.yogeshpaliyal.sendahead.databinding.ActivityEditMessageBinding
 import java.io.File
 import java.text.DateFormat
 import java.util.Calendar

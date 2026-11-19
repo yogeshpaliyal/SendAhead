@@ -60,7 +60,7 @@
                 android:visibility="gone"
                 app:cardBackgroundColor="?attr/colorTertiaryContainer"
                 app:cardElevation="0dp"
-                app:shapeAppearance="@style/ShapeAppearance.WaScheduler.Tile"
+                app:shapeAppearance="@style/ShapeAppearance.Sendahead.Tile"
                 app:strokeWidth="0dp">
 
                 <LinearLayout

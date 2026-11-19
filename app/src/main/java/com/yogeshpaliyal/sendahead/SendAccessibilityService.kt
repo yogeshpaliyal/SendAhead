@@ -1,4 +1,4 @@
-package com.yogeshpaliyal.wascheduler
+package com.yogeshpaliyal.sendahead
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
@@ -22,7 +22,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 class SendAccessibilityService : AccessibilityService() {
 
     companion object {
-        private const val TAG = "WaScheduler"
+        private const val TAG = "Sendahead"
         private const val TIMEOUT_MS = 45_000L
         private const val POLL_MS = 1_000L
 

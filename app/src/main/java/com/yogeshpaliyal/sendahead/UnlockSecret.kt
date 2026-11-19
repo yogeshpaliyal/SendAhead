@@ -1,4 +1,4 @@
-package com.yogeshpaliyal.wascheduler
+package com.yogeshpaliyal.sendahead
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
@@ -20,7 +20,7 @@ object UnlockSecret {
     data class Secret(val type: Type, val value: String)
 
     private const val PREFS = "auto_unlock"
-    private const val ALIAS = "wa_scheduler_auto_unlock"
+    private const val ALIAS = "sendahead_auto_unlock"
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 

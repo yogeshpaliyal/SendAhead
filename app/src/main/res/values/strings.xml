@@ -1,9 +1,9 @@
 <resources>
-    <string name="app_name">WA Scheduler</string>
+    <string name="app_name">Sendahead</string>
     <string name="new_message">Schedule message</string>
-    <string name="accessibility_label">WA Scheduler – auto send</string>
-    <string name="accessibility_description">Used only to tap the Send button in WhatsApp for messages you scheduled in WA Scheduler. It only watches WhatsApp, WhatsApp Business and (if you turn on auto-unlock) the lock screen, and only acts while a scheduled message is being sent. Nothing is read, stored or sent anywhere else — the app has no internet permission.</string>
-    <string name="accessibility_off">Auto-send is off. Enable the WA Scheduler accessibility service so scheduled messages can be sent.</string>
+    <string name="accessibility_label">Sendahead auto-send</string>
+    <string name="accessibility_description">Used only to tap the Send button in WhatsApp for messages you scheduled in Sendahead. It only watches WhatsApp, WhatsApp Business and (if you turn on auto-unlock) the lock screen, and only acts while a scheduled message is being sent. Nothing is read, stored or sent anywhere else — the app has no internet permission.</string>
+    <string name="accessibility_off">Auto-send is off. Enable the Sendahead accessibility service so scheduled messages can be sent.</string>
     <string name="enable">Enable</string>
     <string name="exact_alarm_off">Allow \"Alarms &amp; reminders\" so messages go out on time.</string>
     <string name="allow">Allow</string>

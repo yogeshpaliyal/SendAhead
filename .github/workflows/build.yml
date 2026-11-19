@@ -30,12 +30,12 @@ jobs:
         run: ./gradlew assembleDebug --stacktrace
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk wa-scheduler-debug.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk sendahead-debug.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wa-scheduler-debug
-          path: wa-scheduler-debug.apk
+          name: sendahead-debug
+          path: sendahead-debug.apk
 
       - name: Publish "latest master" release
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
@@ -43,7 +43,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest-master --cleanup-tag --yes || true
-          gh release create latest-master wa-scheduler-debug.apk \
+          gh release create latest-master sendahead-debug.apk \
             --title "latest master" \
             --prerelease \
             --target "$GITHUB_SHA" \

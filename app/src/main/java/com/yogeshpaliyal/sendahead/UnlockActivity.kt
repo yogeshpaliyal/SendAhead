@@ -1,4 +1,4 @@
-package com.yogeshpaliyal.wascheduler
+package com.yogeshpaliyal.sendahead
 
 import android.app.Activity
 import android.app.KeyguardManager
@@ -18,7 +18,7 @@ class UnlockActivity : Activity() {
 
     companion object {
         const val EXTRA_ID = "message_id"
-        private const val TAG = "WaScheduler"
+        private const val TAG = "Sendahead"
     }
 
     private var launched = false

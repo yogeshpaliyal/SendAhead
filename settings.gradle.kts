@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "WaScheduler"
+rootProject.name = "Sendahead"
 include(":app")

@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.yogeshpaliyal.wascheduler"
+    namespace = "com.yogeshpaliyal.sendahead"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.yogeshpaliyal.wascheduler"
+        applicationId = "com.yogeshpaliyal.sendahead"
         minSdk = 24
         targetSdk = 34
         versionCode = 1
