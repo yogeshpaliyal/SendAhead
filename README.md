@@ -58,6 +58,23 @@ PIN can never lock you out. Patterns and fingerprint-only locks are not supporte
 - WhatsApp UI updates can break the Send button lookup. Please open an issue if that happens.
 - The number must be on WhatsApp. The target chat doesn't need to be in your contacts.
 
+## Release signing
+
+Release builds are signed with a private upload key that is **never committed**.
+
+1. On your own computer, from the repo root, run `./scripts/create-release-keystore.sh`.
+   It creates `~/Documents/Sendahead-signing/` (keystore, passwords, fingerprints) and, if the
+   GitHub CLI is logged in, uploads the four Actions secrets:
+   `SIGNING_KEYSTORE_BASE64`, `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS`, `SIGNING_KEY_PASSWORD`.
+2. Back up that folder to a password manager or encrypted drive. Losing the key means existing
+   installs can't be updated.
+3. Publish a release by pushing a tag: `git tag v0.2.0 && git push origin v0.2.0`
+   (or run the **Release** workflow manually). It builds a signed APK and AAB and attaches them
+   to a GitHub release.
+
+For a signed release build on your machine, copy `keystore.properties` from that folder into the
+repo root (it's git-ignored) and run `./gradlew assembleRelease`.
+
 ## Build
 
 ```
