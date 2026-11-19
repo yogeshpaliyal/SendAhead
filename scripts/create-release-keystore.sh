@@ -8,7 +8,7 @@
 # Needs: keytool (any JDK), openssl, and optionally gh (logged in) to set the secrets.
 set -euo pipefail
 
-REPO="${REPO:-yogeshpaliyal/Whatsapp-scheduler}"
+REPO="${REPO:-yogeshpaliyal/SendAhead}"
 DIR="${1:-$HOME/Documents/Sendahead-signing}"
 ALIAS="sendahead"
 KS="$DIR/sendahead-release.jks"
