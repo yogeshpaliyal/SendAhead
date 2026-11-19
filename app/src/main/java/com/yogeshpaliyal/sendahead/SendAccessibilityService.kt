@@ -6,6 +6,10 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.app.KeyguardManager
 import android.content.ActivityNotFoundException
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
+import androidx.core.content.ContextCompat
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -25,6 +29,7 @@ class SendAccessibilityService : AccessibilityService() {
         private const val TAG = "Sendahead"
         private const val TIMEOUT_MS = 45_000L
         private const val POLL_MS = 1_000L
+        const val WAITING_FOR_UNLOCK = "Waiting for you to unlock the phone"
 
         private val KEYGUARD_PKGS = setOf("com.android.systemui", "com.android.keyguard")
 
@@ -85,16 +90,44 @@ class SendAccessibilityService : AccessibilityService() {
     /** Swipes done on the lock screen for this message (some phones need a swipe to show the PIN pad). */
     private var swipeCount = 0
     private var lastSwipeAt = 0L
+    /** WhatsApp has been opened for the current message. */
+    private var launched = false
+    /** The phone stayed locked past the timeout; the message waits for the next unlock. */
+    private var waitingForUnlock = false
+
+    /** Fires on every unlock (PIN, fingerprint, face, Smart Lock…), however it happened. */
+    private val unlockReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            handler.post { onUnlocked("user present") }
+        }
+    }
 
     private val poll = object : Runnable {
         override fun run() {
-            if (current == null || clicked) return
-            if (isLocked()) tryUnlock() else tryClickSend()
+            if (current == null || clicked || waitingForUnlock) return
+            when {
+                isLocked() -> tryUnlock()
+                !launched -> onUnlocked("poll saw unlocked")
+                else -> tryClickSend()
+            }
             handler.postDelayed(this, POLL_MS)
         }
     }
 
     private val timeout = Runnable {
+        val msg = current
+        if (msg != null && !launched && isLocked()) {
+            // Don't fail: keep the message and send it as soon as the phone is unlocked.
+            waitingForUnlock = true
+            handler.removeCallbacks(poll)
+            MessageStore.updateStatus(this, msg.id, Status.SENDING, WAITING_FOR_UNLOCK)
+            Notifier.notify(
+                this, msg.id, "Unlock to send to ${msg.targetLabel}",
+                "Your message is ready. Unlock your phone and it goes out right away.",
+            )
+            log("Still locked at timeout; waiting for unlock (id=${msg.id})")
+            return@Runnable
+        }
         current?.let { dumpScreen("timeout, stage=$stage") }
         current?.let {
             val error = when {
@@ -115,6 +148,11 @@ class SendAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         DebugLog.log(this, "Accessibility service connected")
         instance = this
+        runCatching {
+            ContextCompat.registerReceiver(
+                this, unlockReceiver, IntentFilter(Intent.ACTION_USER_PRESENT), ContextCompat.RECEIVER_EXPORTED,
+            )
+        }
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
@@ -123,6 +161,7 @@ class SendAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        runCatching { unregisterReceiver(unlockReceiver) }
         instance = null
         handler.removeCallbacksAndMessages(null)
         super.onDestroy()
@@ -159,28 +198,59 @@ class SendAccessibilityService : AccessibilityService() {
         searchClicks = 0
         typedSearch = false
         lastSeen = emptyList()
+        launched = false
+        waitingForUnlock = false
         MessageStore.updateStatus(this, id, Status.SENDING)
         log("Start send id=$id to=${msg.targetLabel} pkg=${msg.packageName} files=${msg.attachments.size} locked=${isLocked()}")
-        try {
-            val keyguard = getSystemService(KeyguardManager::class.java)
-            if (keyguard.isKeyguardLocked) {
-                // Dismiss the lock screen first (works for Swipe; shows PIN prompt for secure locks).
+        if (isLocked()) {
+            // Ask Android to dismiss the lock screen (instant for Swipe; shows the PIN prompt otherwise).
+            // WhatsApp is opened by onUnlocked(), whichever way the phone actually gets unlocked.
+            try {
                 startActivity(
                     Intent(this, UnlockActivity::class.java)
                         .putExtra(UnlockActivity.EXTRA_ID, msg.id)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
                 )
-            } else {
-                startActivity(WhatsAppLauncher.buildIntent(this, msg))
+            } catch (e: Exception) {
+                log("Unlock screen failed to start: ${e.message}")
             }
+        } else if (!launchWhatsApp(msg)) {
+            return
+        }
+        handler.postDelayed(poll, 1_500)
+        handler.postDelayed(timeout, TIMEOUT_MS)
+    }
+
+    /** Opens WhatsApp for [msg]. Returns false (and fails the message) if it can't. */
+    private fun launchWhatsApp(msg: ScheduledMessage): Boolean {
+        try {
+            startActivity(WhatsAppLauncher.buildIntent(this, msg))
+            launched = true
+            log("Opened WhatsApp for id=${msg.id}")
+            return true
         } catch (e: ActivityNotFoundException) {
             finish(msg, success = false, error = "Could not open WhatsApp")
-            return
         } catch (e: Exception) {
             Log.e(TAG, "launch failed", e)
             finish(msg, success = false, error = e.message ?: "Launch failed")
-            return
         }
+        return false
+    }
+
+    /**
+     * Called when the phone becomes unlocked (unlock broadcast, the unlock screen's callback,
+     * or the poll noticing). Opens WhatsApp once and restarts the send timer.
+     */
+    fun onUnlocked(reason: String) {
+        val msg = current ?: return
+        if (launched || clicked || isLocked()) return
+        log("Unlocked ($reason); opening WhatsApp for id=${msg.id}")
+        val wasWaiting = waitingForUnlock
+        waitingForUnlock = false
+        if (wasWaiting) MessageStore.updateStatus(this, msg.id, Status.SENDING, null)
+        if (!launchWhatsApp(msg)) return
+        handler.removeCallbacks(timeout)
+        handler.removeCallbacks(poll)
         handler.postDelayed(poll, 1_500)
         handler.postDelayed(timeout, TIMEOUT_MS)
     }
@@ -599,6 +669,8 @@ class SendAccessibilityService : AccessibilityService() {
         current = null
         clicked = false
         unlockAttempted = false
+        launched = false
+        waitingForUnlock = false
         // Small gap so WhatsApp settles before the next message.
         handler.postDelayed({ if (current == null) startNext() }, 2_500)
     }

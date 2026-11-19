@@ -60,14 +60,18 @@ class UnlockActivity : Activity() {
     private fun launchWhatsApp() {
         if (launched) return
         launched = true
-        val id = intent.getLongExtra(EXTRA_ID, -1L)
-        val msg = MessageStore.get(this, id)
-        if (msg != null) {
-            try {
-                startActivity(WhatsAppLauncher.buildIntent(this, msg))
-            } catch (e: Exception) {
-                // The service's timeout will mark the message as failed.
-                Log.e(TAG, "launch failed", e)
+        val service = SendAccessibilityService.instance
+        if (service != null) {
+            // The service opens WhatsApp exactly once, however the phone got unlocked.
+            service.onUnlocked("unlock screen callback")
+        } else {
+            val msg = MessageStore.get(this, intent.getLongExtra(EXTRA_ID, -1L))
+            if (msg != null) {
+                try {
+                    startActivity(WhatsAppLauncher.buildIntent(this, msg))
+                } catch (e: Exception) {
+                    Log.e(TAG, "launch failed", e)
+                }
             }
         }
         finish()
