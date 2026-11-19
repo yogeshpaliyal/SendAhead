@@ -1,7 +1,5 @@
 package com.yogeshpaliyal.wascheduler
 
-import android.app.DatePickerDialog
-import android.app.TimePickerDialog
 import android.content.Intent
 import android.view.View
 import android.net.Uri
@@ -13,6 +11,15 @@ import android.text.format.DateFormat as AndroidDateFormat
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.chip.Chip
+import com.google.android.material.datepicker.CalendarConstraints
+import com.google.android.material.datepicker.DateValidatorPointForward
+import com.google.android.material.datepicker.MaterialDatePicker
+import com.google.android.material.timepicker.MaterialTimePicker
+import com.google.android.material.timepicker.TimeFormat
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 import com.yogeshpaliyal.wascheduler.databinding.ActivityEditMessageBinding
 import java.io.File
 import java.text.DateFormat
@@ -95,16 +102,17 @@ class EditMessageActivity : AppCompatActivity() {
             attachments += existing.attachments
             if (existing.packageName == ScheduledMessage.WHATSAPP_BUSINESS) binding.appBusiness.isChecked = true
             if (existing.timeMillis > System.currentTimeMillis()) calendar.timeInMillis = existing.timeMillis
-            title = "Edit message"
+            binding.toolbar.title = "Edit message"
         } else if (!WhatsAppLauncher.isInstalled(this, ScheduledMessage.WHATSAPP) &&
             WhatsAppLauncher.isInstalled(this, ScheduledMessage.WHATSAPP_BUSINESS)
         ) {
             binding.appBusiness.isChecked = true
         }
 
-        binding.targetGroup.setOnCheckedChangeListener { _, _ -> renderTarget() }
-        binding.pickChat.setOnClickListener { pickChat() }
-        binding.pickContact.setOnClickListener {
+        binding.toolbar.setNavigationOnClickListener { finish() }
+        binding.targetGroup.addOnButtonCheckedListener { _, _, isChecked -> if (isChecked) renderTarget() }
+        binding.chatNameLayout.setEndIconOnClickListener { pickChat() }
+        binding.phoneLayout.setEndIconOnClickListener {
             try {
                 pickContact.launch(Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI))
             } catch (e: Exception) {
@@ -114,26 +122,9 @@ class EditMessageActivity : AppCompatActivity() {
         renderTarget()
 
         binding.addAttachments.setOnClickListener { pickFiles.launch(arrayOf("*/*")) }
-        binding.clearAttachments.setOnClickListener {
-            attachments.clear()
-            renderAttachments()
-        }
-        binding.pickDate.setOnClickListener {
-            DatePickerDialog(this, { _, y, m, d ->
-                calendar.set(y, m, d)
-                renderTime()
-            }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).apply {
-                datePicker.minDate = System.currentTimeMillis() - 1000
-            }.show()
-        }
-        binding.pickTime.setOnClickListener {
-            TimePickerDialog(this, { _, h, min ->
-                calendar.set(Calendar.HOUR_OF_DAY, h)
-                calendar.set(Calendar.MINUTE, min)
-                calendar.set(Calendar.SECOND, 0)
-                renderTime()
-            }, calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), AndroidDateFormat.is24HourFormat(this)).show()
-        }
+        binding.dateTile.setOnClickListener { showDatePicker() }
+        binding.timeTile.setOnClickListener { showTimePicker() }
+        setupQuickTimes()
         binding.save.setOnClickListener { save(sendNow = false) }
         binding.sendNow.setOnClickListener { save(sendNow = true) }
 
@@ -156,14 +147,90 @@ class EditMessageActivity : AppCompatActivity() {
         }
     }
 
+    private fun showDatePicker() {
+        // MaterialDatePicker works in UTC midnights.
+        val utc = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+            clear()
+            set(calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH))
+        }
+        val todayUtc = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+            val now = Calendar.getInstance()
+            clear()
+            set(now.get(Calendar.YEAR), now.get(Calendar.MONTH), now.get(Calendar.DAY_OF_MONTH))
+        }
+        val picker = MaterialDatePicker.Builder.datePicker()
+            .setTitleText("Send on")
+            .setSelection(utc.timeInMillis)
+            .setCalendarConstraints(
+                CalendarConstraints.Builder()
+                    .setStart(todayUtc.timeInMillis)
+                    .setValidator(DateValidatorPointForward.from(todayUtc.timeInMillis))
+                    .build()
+            )
+            .build()
+        picker.addOnPositiveButtonClickListener { sel ->
+            val picked = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply { timeInMillis = sel }
+            calendar.set(picked.get(Calendar.YEAR), picked.get(Calendar.MONTH), picked.get(Calendar.DAY_OF_MONTH))
+            renderTime()
+        }
+        picker.show(supportFragmentManager, "date")
+    }
+
+    private fun showTimePicker() {
+        val picker = MaterialTimePicker.Builder()
+            .setTitleText("Send at")
+            .setTimeFormat(if (AndroidDateFormat.is24HourFormat(this)) TimeFormat.CLOCK_24H else TimeFormat.CLOCK_12H)
+            .setHour(calendar.get(Calendar.HOUR_OF_DAY))
+            .setMinute(calendar.get(Calendar.MINUTE))
+            .build()
+        picker.addOnPositiveButtonClickListener {
+            calendar.set(Calendar.HOUR_OF_DAY, picker.hour)
+            calendar.set(Calendar.MINUTE, picker.minute)
+            calendar.set(Calendar.SECOND, 0)
+            renderTime()
+        }
+        picker.show(supportFragmentManager, "time")
+    }
+
+    private fun setupQuickTimes() {
+        fun label(h: Int): String {
+            val c = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, h); set(Calendar.MINUTE, 0) }
+            val (t, ampm) = formatTime(this, c.timeInMillis)
+            return if (ampm.isEmpty()) t else "$t $ampm"
+        }
+        val now = Calendar.getInstance()
+        binding.chipTonight.text = "Tonight, ${label(21)}"
+        binding.chipTonight.visibility = if (now.get(Calendar.HOUR_OF_DAY) < 20) View.VISIBLE else View.GONE
+        binding.chipTomorrow.text = "Tomorrow, ${label(9)}"
+
+        binding.chipInHour.setOnClickListener {
+            calendar.timeInMillis = System.currentTimeMillis() + 60 * 60_000L
+            calendar.set(Calendar.SECOND, 0)
+            calendar.set(Calendar.MILLISECOND, 0)
+            renderTime()
+        }
+        binding.chipTonight.setOnClickListener {
+            calendar.timeInMillis = System.currentTimeMillis()
+            calendar.set(Calendar.HOUR_OF_DAY, 21); calendar.set(Calendar.MINUTE, 0)
+            calendar.set(Calendar.SECOND, 0); calendar.set(Calendar.MILLISECOND, 0)
+            renderTime()
+        }
+        binding.chipTomorrow.setOnClickListener {
+            calendar.timeInMillis = System.currentTimeMillis()
+            calendar.add(Calendar.DAY_OF_MONTH, 1)
+            calendar.set(Calendar.HOUR_OF_DAY, 9); calendar.set(Calendar.MINUTE, 0)
+            calendar.set(Calendar.SECOND, 0); calendar.set(Calendar.MILLISECOND, 0)
+            renderTime()
+        }
+    }
+
     private fun selectedPackage() =
         if (binding.appBusiness.isChecked) ScheduledMessage.WHATSAPP_BUSINESS else ScheduledMessage.WHATSAPP
 
     private fun renderTarget() {
         val byName = binding.targetName.isChecked
-        binding.chatNameRow.visibility = if (byName) View.VISIBLE else View.GONE
+        binding.chatNameLayout.visibility = if (byName) View.VISIBLE else View.GONE
         binding.phoneLayout.visibility = if (byName) View.GONE else View.VISIBLE
-        binding.pickContact.visibility = if (byName) View.GONE else View.VISIBLE
     }
 
     private fun pickChat() {
@@ -183,16 +250,49 @@ class EditMessageActivity : AppCompatActivity() {
     }
 
     private fun renderTime() {
-        binding.pickDate.text = DateFormat.getDateInstance(DateFormat.MEDIUM).format(calendar.time)
-        binding.pickTime.text = DateFormat.getTimeInstance(DateFormat.SHORT).format(calendar.time)
+        val today = Calendar.getInstance()
+        val tomorrow = Calendar.getInstance().apply { add(Calendar.DAY_OF_MONTH, 1) }
+        fun sameDay(a: Calendar, b: Calendar) =
+            a.get(Calendar.YEAR) == b.get(Calendar.YEAR) && a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR)
+        binding.dayName.text = when {
+            sameDay(calendar, today) -> "Today"
+            sameDay(calendar, tomorrow) -> "Tomorrow"
+            else -> SimpleDateFormat("EEEE", Locale.getDefault()).format(calendar.time)
+        }
+        binding.dateText.text = SimpleDateFormat("d MMM", Locale.getDefault()).format(calendar.time)
+        val (t, ampm) = formatTime(this, calendar.timeInMillis)
+        binding.timeText.text = t
+        binding.meridiem.text = ampm.ifEmpty { "At" }
+        val whenText = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(calendar.time)
+        binding.dateTile.contentDescription = "Date: ${binding.dayName.text}, ${binding.dateText.text}. Tap to change."
+        binding.timeTile.contentDescription = "Time: $whenText. Tap to change."
+        val past = calendar.timeInMillis < System.currentTimeMillis()
+        binding.save.isEnabled = !past
+        binding.save.text = if (past) "Pick a time in the future" else "Schedule"
     }
 
     private fun renderAttachments() {
-        binding.attachments.text = if (attachments.isEmpty()) {
-            "No attachments"
-        } else {
-            attachments.joinToString(separator = "\n", prefix = "Attachments:\n") { "• ${it.displayName}" }
+        val group = binding.attachmentChips
+        // Keep the "Add files" chip; rebuild the rest.
+        for (i in group.childCount - 1 downTo 0) {
+            val v = group.getChildAt(i)
+            if (v.id != binding.addAttachments.id) group.removeViewAt(i)
         }
+        attachments.forEach { a ->
+            val chip = Chip(this).apply {
+                text = a.displayName
+                isCloseIconVisible = true
+                closeIconContentDescription = "Remove ${a.displayName}"
+                setChipIconResource(R.drawable.ic_attach)
+                isChipIconVisible = true
+                setOnCloseIconClickListener {
+                    attachments.remove(a)
+                    renderAttachments()
+                }
+            }
+            group.addView(chip, group.childCount - 1)
+        }
+        binding.addAttachments.text = if (attachments.isEmpty()) "Add files" else "Add more"
     }
 
     /** Copies the picked file into app storage so it's still there at send time. */

@@ -2,38 +2,52 @@ package com.yogeshpaliyal.wascheduler
 
 import android.Manifest
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
-import android.content.pm.PackageManager
-import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
-import android.widget.Button
-import android.view.Gravity
 import android.provider.Settings
 import android.text.InputType
+import android.text.format.DateFormat as AndroidDateFormat
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
-import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
+import androidx.annotation.AttrRes
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.PopupMenu
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.progressindicator.LinearProgressIndicator
+import com.google.android.material.radiobutton.MaterialRadioButton
+import com.google.android.material.shape.ShapeAppearanceModel
+import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 import com.yogeshpaliyal.wascheduler.databinding.ActivityMainBinding
+import com.yogeshpaliyal.wascheduler.databinding.ItemHeaderBinding
 import com.yogeshpaliyal.wascheduler.databinding.ItemMessageBinding
-import java.text.DateFormat
+import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
+import java.util.Locale
+import com.google.android.material.R as M
 
 class MainActivity : AppCompatActivity() {
 
@@ -47,27 +61,38 @@ class MainActivity : AppCompatActivity() {
     private val adapter = MessageAdapter()
 
     private val notificationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { renderSetup() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        setSupportActionBar(binding.toolbar)
 
         binding.list.layoutManager = LinearLayoutManager(this)
         binding.list.adapter = adapter
 
-        binding.fab.setOnClickListener {
-            startActivity(Intent(this, EditMessageActivity::class.java))
+        binding.fab.setOnClickListener { startActivity(Intent(this, EditMessageActivity::class.java)) }
+        // Extended FAB shrinks to an icon while scrolling down and grows back when scrolling up.
+        binding.scroll.setOnScrollChangeListener { _: View, _: Int, y: Int, _: Int, oldY: Int ->
+            if (y > oldY + 4 && binding.fab.isExtended) binding.fab.shrink()
+            else if (y < oldY - 4 && !binding.fab.isExtended) binding.fab.extend()
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        refresh()
+    }
+
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        menu.add(0, MENU_AUTO_UNLOCK, 0, "Auto-unlock (PIN / password)")
+        menu.add(0, MENU_AUTO_UNLOCK, 0, "Auto-unlock")
         menu.add(0, MENU_SHARE_LOG, 1, "Share debug log")
         menu.add(0, MENU_CLEAR_LOG, 2, "Clear debug log")
         return true
@@ -86,107 +111,222 @@ class MainActivity : AppCompatActivity() {
         return super.onOptionsItemSelected(item)
     }
 
-    private fun showAutoUnlockDialog() {
-        val pad = (20 * resources.displayMetrics.density).toInt()
-        val enabled = UnlockSecret.isEnabled(this)
-        val info = TextView(this).apply {
-            text = (if (enabled) "Status: ON\n\n" else "Status: OFF\n\n") +
-                "If the phone is locked when a message is due, the accessibility service types this PIN/password " +
-                "on the lock screen.\n\n" +
-                "• Stored encrypted with a key in the Android Keystore; app backups are disabled.\n" +
-                "• Anyone who can use this app's code on your phone could unlock it. Use only on your own phone.\n" +
-                "• Only ONE try per message. If it fails, auto-unlock turns itself off.\n" +
-                "• Patterns and fingerprint-only locks are not supported."
-        }
-        val pin = RadioButton(this).apply { id = View.generateViewId(); text = "PIN"; isChecked = true }
-        val password = RadioButton(this).apply { id = View.generateViewId(); text = "Password" }
-        val input = EditText(this).apply {
-            hint = "Enter PIN"
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
-        }
-        val type = RadioGroup(this).apply {
-            orientation = RadioGroup.HORIZONTAL
-            addView(pin)
-            addView(password)
-            setOnCheckedChangeListener { _, checked ->
-                if (checked == password.id) {
-                    input.hint = "Enter password"
-                    input.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-                } else {
-                    input.hint = "Enter PIN"
-                    input.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
-                }
-            }
-        }
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(pad, pad / 2, pad, 0)
-            addView(info)
-            addView(type)
-            addView(input)
-        }
-        val builder = AlertDialog.Builder(this)
-            .setTitle("Auto-unlock")
-            .setView(layout)
-            .setPositiveButton("Save") { _, _ ->
-                val value = input.text.toString()
-                if (value.isEmpty()) return@setPositiveButton
-                val t = if (password.isChecked) UnlockSecret.Type.PASSWORD else UnlockSecret.Type.PIN
-                UnlockSecret.save(this, UnlockSecret.Secret(t, value))
-                Toast.makeText(this, "Auto-unlock on. Test it with a message 2 min from now.", Toast.LENGTH_LONG).show()
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-        if (enabled) {
-            builder.setNeutralButton("Turn off") { _, _ ->
-                UnlockSecret.clear(this)
-                Toast.makeText(this, "Auto-unlock off", Toast.LENGTH_SHORT).show()
-            }
-        }
-        builder.show()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        refresh()
-    }
+    // ---------- List ----------
 
     private fun refresh() {
         renderSetup()
-        val items = MessageStore.all(this).sortedWith(
-            compareBy<ScheduledMessage> { it.status != Status.PENDING && it.status != Status.SENDING }
-                .thenBy { if (it.status == Status.PENDING) it.timeMillis else -it.timeMillis }
-        )
-        adapter.submit(items)
-        binding.empty.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
+        val all = MessageStore.all(this)
+        val upcoming = all.filter { it.status == Status.PENDING || it.status == Status.SENDING }.sortedBy { it.timeMillis }
+        val history = all.filter { it.status == Status.SENT || it.status == Status.FAILED }.sortedByDescending { it.timeMillis }
+
+        val rows = mutableListOf<Row>()
+        upcoming.groupBy { dayLabel(it.timeMillis) }.forEach { (label, msgs) ->
+            rows += Row.Header(label)
+            msgs.forEachIndexed { i, m -> rows += Row.Item(m, first = i == 0, last = i == msgs.lastIndex) }
+        }
+        if (history.isNotEmpty()) {
+            rows += Row.Header("Sent and failed")
+            history.forEachIndexed { i, m -> rows += Row.Item(m, first = i == 0, last = i == history.lastIndex) }
+        }
+        adapter.submit(rows)
+
+        binding.empty.visibility = if (all.isEmpty()) View.VISIBLE else View.GONE
+        val summary = when {
+            upcoming.isEmpty() && all.isNotEmpty() -> "No messages waiting to send."
+            upcoming.isEmpty() -> ""
+            else -> {
+                val next = upcoming.first()
+                val count = if (upcoming.size == 1) "1 message waiting" else "${upcoming.size} messages waiting"
+                "$count. Next one goes to ${next.targetLabel} ${relativeWhen(next.timeMillis)}."
+            }
+        }
+        binding.summary.text = summary
+        binding.summary.visibility = if (summary.isEmpty()) View.GONE else View.VISIBLE
     }
 
-    private data class SetupItem(val ok: Boolean, val title: String, val action: () -> Unit)
+    private fun dayLabel(millis: Long): String {
+        val c = Calendar.getInstance().apply { timeInMillis = millis }
+        val diff = daysBetween(Calendar.getInstance(), c)
+        return when {
+            diff <= 0 -> "Today"
+            diff == 1 -> "Tomorrow"
+            diff < 7 -> SimpleDateFormat("EEEE", Locale.getDefault()).format(c.time)
+            else -> SimpleDateFormat("EEE, d MMM", Locale.getDefault()).format(c.time)
+        }
+    }
 
-    /** SKEDit-style checklist of everything the phone needs for reliable sending. */
+    private fun relativeWhen(millis: Long): String {
+        val c = Calendar.getInstance().apply { timeInMillis = millis }
+        val (t, ampm) = formatTime(this, millis)
+        val time = if (ampm.isEmpty()) t else "$t $ampm"
+        return when (daysBetween(Calendar.getInstance(), c)) {
+            0 -> "today at $time"
+            1 -> "tomorrow at $time"
+            else -> "on ${SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(c.time)} at $time"
+        }
+    }
+
+    private fun daysBetween(a: Calendar, b: Calendar): Int {
+        fun dayStart(c: Calendar) = (c.clone() as Calendar).apply {
+            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        return ((dayStart(b) - dayStart(a)) / 86_400_000L).toInt()
+    }
+
+    private sealed class Row {
+        data class Header(val label: String) : Row()
+        data class Item(val msg: ScheduledMessage, val first: Boolean, val last: Boolean) : Row()
+    }
+
+    private inner class MessageAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+        private var rows: List<Row> = emptyList()
+
+        fun submit(list: List<Row>) {
+            rows = list
+            @Suppress("NotifyDataSetChanged")
+            notifyDataSetChanged()
+        }
+
+        inner class HeaderVH(val b: ItemHeaderBinding) : RecyclerView.ViewHolder(b.root)
+        inner class ItemVH(val b: ItemMessageBinding) : RecyclerView.ViewHolder(b.root)
+
+        override fun getItemViewType(position: Int) = if (rows[position] is Row.Header) 0 else 1
+        override fun getItemCount() = rows.size
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+            val inf = LayoutInflater.from(parent.context)
+            return if (viewType == 0) HeaderVH(ItemHeaderBinding.inflate(inf, parent, false))
+            else ItemVH(ItemMessageBinding.inflate(inf, parent, false))
+        }
+
+        override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+            when (val row = rows[position]) {
+                is Row.Header -> (holder as HeaderVH).b.header.text = row.label
+                is Row.Item -> bindItem((holder as ItemVH).b, row)
+            }
+        }
+
+        private fun bindItem(b: ItemMessageBinding, row: Row.Item) {
+            val m = row.msg
+            val ctx = b.root.context
+
+            // Connected group: big outer corners, tight inner corners (M3 Expressive list grouping).
+            val big = dp(24f)
+            val small = dp(6f)
+            b.card.shapeAppearanceModel = ShapeAppearanceModel.builder()
+                .setTopLeftCornerSize(if (row.first) big else small)
+                .setTopRightCornerSize(if (row.first) big else small)
+                .setBottomLeftCornerSize(if (row.last) big else small)
+                .setBottomRightCornerSize(if (row.last) big else small)
+                .build()
+
+            val (time, ampm) = formatTime(ctx, m.timeMillis)
+            b.time.text = time
+            val isHistory = m.status == Status.SENT || m.status == Status.FAILED
+            val sub = if (isHistory) {
+                listOf(ampm, SimpleDateFormat("d MMM", Locale.getDefault()).format(Date(m.timeMillis)))
+                    .filter { it.isNotEmpty() }.joinToString(", ")
+            } else ampm
+            b.meridiem.text = sub
+            b.meridiem.visibility = if (sub.isEmpty()) View.GONE else View.VISIBLE
+
+            b.recipient.text = m.targetLabel
+            b.recipient.setCompoundDrawablesRelativeWithIntrinsicBounds(if (m.byName) R.drawable.ic_group else 0, 0, 0, 0)
+            b.recipient.compoundDrawableTintList = ColorStateList.valueOf(themeColor(ctx, M.attr.colorOnSurfaceVariant))
+            b.text.text = m.text.ifBlank { "No text, attachments only" }
+
+            val app = if (m.packageName == ScheduledMessage.WHATSAPP_BUSINESS) "WhatsApp Business" else "WhatsApp"
+            val files = when (m.attachments.size) {
+                0 -> ""
+                1 -> ", 1 file"
+                else -> ", ${m.attachments.size} files"
+            }
+            b.meta.text = "$app$files"
+
+            val (label, bgAttr, fgAttr) = when (m.status) {
+                Status.PENDING -> Triple("Waiting", M.attr.colorTertiaryContainer, M.attr.colorOnTertiaryContainer)
+                Status.SENDING -> Triple("Sending", M.attr.colorPrimary, M.attr.colorOnPrimary)
+                Status.SENT -> Triple("Sent", M.attr.colorPrimaryContainer, M.attr.colorOnPrimaryContainer)
+                Status.FAILED -> Triple("Not sent", M.attr.colorErrorContainer, M.attr.colorOnErrorContainer)
+            }
+            b.status.text = label
+            b.status.backgroundTintList = ColorStateList.valueOf(themeColor(ctx, bgAttr))
+            b.status.setTextColor(themeColor(ctx, fgAttr))
+
+            // Finished messages step back; upcoming ones keep full contrast.
+            b.time.setTextColor(themeColor(ctx, if (isHistory) M.attr.colorOnSurfaceVariant else M.attr.colorOnSurface))
+
+            val failed = m.status == Status.FAILED
+            b.error.visibility = if (failed && m.error != null) View.VISIBLE else View.GONE
+            b.error.text = m.error
+            b.retry.visibility = if (failed) View.VISIBLE else View.GONE
+
+            val editable = m.status == Status.PENDING || m.status == Status.FAILED
+            b.card.setOnClickListener { if (editable) openEditor(m.id) }
+            b.retry.setOnClickListener { openEditor(m.id) }
+            b.more.setOnClickListener { v ->
+                PopupMenu(ctx, v).apply {
+                    if (editable) menu.add(0, 1, 0, "Edit")
+                    menu.add(0, 2, 1, "Delete")
+                    setOnMenuItemClickListener {
+                        when (it.itemId) {
+                            1 -> openEditor(m.id)
+                            2 -> confirmDelete(m)
+                        }
+                        true
+                    }
+                }.show()
+            }
+        }
+    }
+
+    private fun openEditor(id: Long) {
+        startActivity(Intent(this, EditMessageActivity::class.java).putExtra(EditMessageActivity.EXTRA_ID, id))
+    }
+
+    private fun confirmDelete(m: ScheduledMessage) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Delete message to ${m.targetLabel}?")
+            .setMessage(if (m.status == Status.PENDING) "It won't be sent." else "It will be removed from this list.")
+            .setPositiveButton("Delete") { _, _ ->
+                Scheduler.cancel(this, m.id)
+                MessageStore.delete(this, m.id)
+                refresh()
+            }
+            .setNegativeButton("Keep", null)
+            .show()
+    }
+
+    // ---------- Setup checklist ----------
+
+    private data class SetupItem(val ok: Boolean, val title: String, val why: String, val action: () -> Unit)
+
     private fun renderSetup() {
         val pm = getSystemService(PowerManager::class.java)
         val items = mutableListOf(
-            SetupItem(isAccessibilityEnabled(), "Accessibility service (required)") { showAccessibilityExplainer() },
-            SetupItem(pm.isIgnoringBatteryOptimizations(packageName), "Run in background / battery unrestricted (required)") {
+            SetupItem(isAccessibilityEnabled(), "Turn on auto-send", "Lets the app tap Send in WhatsApp") {
+                showAccessibilityExplainer()
+            },
+            SetupItem(pm.isIgnoringBatteryOptimizations(packageName), "Allow running in background", "Stops the battery saver from closing the app") {
                 try {
                     startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
                 } catch (_: Exception) {
                     startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                 }
             },
-            SetupItem(Settings.canDrawOverlays(this), "Display over other apps (needed on many phones)") {
+            SetupItem(Settings.canDrawOverlays(this), "Allow display over other apps", "Needed to open WhatsApp from the background") {
                 startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             },
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            items += SetupItem(Scheduler.canScheduleExact(this), "Alarms & reminders (on-time sending)") {
+            items += SetupItem(Scheduler.canScheduleExact(this), "Allow alarms and reminders", "Sends on the minute, not minutes late") {
                 startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName")))
             }
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
                 PackageManager.PERMISSION_GRANTED
-            items += SetupItem(granted, "Notifications (sent / failed alerts)") {
+            items += SetupItem(granted, "Allow notifications", "Tells you when a message was sent or failed") {
                 startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
             }
         }
@@ -195,61 +335,79 @@ class MainActivity : AppCompatActivity() {
         val aggressiveOem = listOf("xiaomi", "redmi", "poco", "oppo", "vivo", "realme", "oneplus", "tecno", "infinix", "huawei", "honor")
             .any { maker.contains(it) }
 
+        binding.setupCard.visibility = if (missing.isEmpty()) View.GONE else View.VISIBLE
+        if (missing.isEmpty()) return
+
+        val onCard = themeColor(this, M.attr.colorOnTertiaryContainer)
         val list = binding.setupList
         list.removeAllViews()
-        val pad = (6 * resources.displayMetrics.density).toInt()
         list.addView(TextView(this).apply {
-            text = "Finish setup so messages are sent reliably"
-            setPadding(0, 0, 0, pad)
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            text = "Finish setup"
+            setTextAppearance(M.style.TextAppearance_Material3_TitleLarge)
+            setTextColor(onCard)
         })
-        missing.forEach { item ->
-            list.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                addView(TextView(context).apply {
-                    text = "✗  ${item.title}"
-                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                })
-                addView(Button(context).apply {
-                    text = "Fix"
-                    setOnClickListener { item.action() }
-                })
-            })
-        }
+        val done = items.size - missing.size
+        list.addView(TextView(this).apply {
+            text = "$done of ${items.size} done. Messages may not go out until the rest are on."
+            setTextAppearance(M.style.TextAppearance_Material3_BodyMedium)
+            setTextColor(onCard)
+            setPadding(0, dp(4f).toInt(), 0, dp(12f).toInt())
+        })
+        list.addView(LinearProgressIndicator(this).apply {
+            max = items.size
+            progress = done
+            trackCornerRadius = dp(4f).toInt()
+            trackThickness = dp(6f).toInt()
+            setIndicatorColor(themeColor(context, M.attr.colorTertiary))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                .apply { bottomMargin = dp(8f).toInt() }
+        })
+        missing.forEach { item -> list.addView(setupRow(item.title, item.why, "Fix", onCard, item.action)) }
         if (aggressiveOem) {
-            list.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                addView(TextView(context).apply {
-                    text = "ⓘ  ${Build.MANUFACTURER}: in App info enable Autostart and \"Display pop-up windows while running in background\""
-                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                })
-                addView(Button(context).apply {
-                    text = "Open"
-                    setOnClickListener {
-                        startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
-                    }
-                })
-            })
+            list.addView(
+                setupRow(
+                    "Allow autostart",
+                    "${Build.MANUFACTURER} phones also need Autostart and pop-ups from background, in App info",
+                    "Open", onCard,
+                ) { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }
+            )
         }
-        binding.setupCard.visibility = if (missing.isEmpty() && !aggressiveOem) View.GONE else View.VISIBLE
     }
 
-    private fun shareLog() {
-        val f = DebugLog.file(this)
-        if (!f.exists() || f.length() == 0L) {
-            Toast.makeText(this, "Debug log is empty. Try a send first.", Toast.LENGTH_SHORT).show()
-            return
+    private fun setupRow(title: String, why: String, cta: String, onCard: Int, action: () -> Unit): View =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(8f).toInt(), 0, 0)
+            addView(ImageView(context).apply {
+                setImageResource(R.drawable.ic_error)
+                imageTintList = ColorStateList.valueOf(onCard)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                layoutParams = LinearLayout.LayoutParams(dp(20f).toInt(), dp(20f).toInt()).apply { marginEnd = dp(12f).toInt() }
+            })
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                addView(TextView(context).apply {
+                    text = title
+                    setTextAppearance(M.style.TextAppearance_Material3_TitleSmall)
+                    setTextColor(onCard)
+                })
+                addView(TextView(context).apply {
+                    text = why
+                    setTextAppearance(M.style.TextAppearance_Material3_BodySmall)
+                    setTextColor(onCard)
+                })
+            })
+            addView(MaterialButton(context).apply {
+                text = cta
+                backgroundTintList = ColorStateList.valueOf(themeColor(context, M.attr.colorTertiary))
+                setTextColor(themeColor(context, M.attr.colorOnTertiary))
+                setOnClickListener { action() }
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    .apply { marginStart = dp(8f).toInt() }
+            })
         }
-        val uri = FileProvider.getUriForFile(this, "$packageName.files", f)
-        val send = Intent(Intent.ACTION_SEND)
-            .setType("text/plain")
-            .putExtra(Intent.EXTRA_STREAM, uri)
-            .putExtra(Intent.EXTRA_SUBJECT, "WA Scheduler debug log")
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        startActivity(Intent.createChooser(send, "Share debug log (contains screen text from WhatsApp)"))
-    }
 
     private fun isAccessibilityEnabled(): Boolean {
         val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
@@ -261,84 +419,118 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showAccessibilityExplainer() {
-        AlertDialog.Builder(this)
-            .setTitle(R.string.accessibility_label)
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Turn on auto-send")
             .setMessage(
                 getString(R.string.accessibility_description) +
-                    "\n\nOn the next screen open \"Installed apps\" / \"Downloaded apps\" → WA Scheduler and turn it on." +
-                    "\n\nAndroid 13+: if it's greyed out, open App info → ⋮ → \"Allow restricted settings\" first."
+                    "\n\nOn the next screen, open Installed apps (or Downloaded apps), choose WA Scheduler and turn it on." +
+                    "\n\nIf the switch is greyed out, open App info, tap the menu at the top right and choose Allow restricted settings, then try again."
             )
-            .setPositiveButton("Open settings") { _, _ ->
-                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            }
+            .setPositiveButton("Open settings") { _, _ -> startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
             .setNeutralButton("App info") { _, _ ->
-                startActivity(
-                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
-                )
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
             }
-            .setNegativeButton(android.R.string.cancel, null)
+            .setNegativeButton("Not now", null)
             .show()
     }
 
-    private inner class MessageAdapter : RecyclerView.Adapter<MessageAdapter.VH>() {
-        private var items: List<ScheduledMessage> = emptyList()
+    // ---------- Auto-unlock ----------
 
-        fun submit(list: List<ScheduledMessage>) {
-            items = list
-            @Suppress("NotifyDataSetChanged")
-            notifyDataSetChanged()
+    private fun showAutoUnlockDialog() {
+        val pad = dp(24f).toInt()
+        val enabled = UnlockSecret.isEnabled(this)
+        val info = TextView(this).apply {
+            text = (if (enabled) "Auto-unlock is on.\n\n" else "Auto-unlock is off.\n\n") +
+                "If your phone is locked when a message is due, the app types this PIN or password on the lock screen.\n\n" +
+                "It's stored encrypted with a key that never leaves this phone, and app backups are off. " +
+                "The app tries once per message. If that fails, auto-unlock turns itself off.\n\n" +
+                "Patterns and fingerprint-only locks aren't supported. Use this only on your own phone."
+            setTextAppearance(M.style.TextAppearance_Material3_BodyMedium)
         }
-
-        inner class VH(val b: ItemMessageBinding) : RecyclerView.ViewHolder(b.root)
-
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
-            VH(ItemMessageBinding.inflate(LayoutInflater.from(parent.context), parent, false))
-
-        override fun getItemCount() = items.size
-
-        override fun onBindViewHolder(holder: VH, position: Int) {
-            val m = items[position]
-            val b = holder.b
-            b.phone.text = m.targetLabel
-            b.time.text = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(m.timeMillis))
-            b.text.text = m.text.ifBlank { "(no text)" }
-            val app = if (m.packageName == ScheduledMessage.WHATSAPP_BUSINESS) "WhatsApp Business" else "WhatsApp"
-            val files = if (m.attachments.isEmpty()) "" else " • ${m.attachments.size} attachment(s)"
-            val err = if (m.status == Status.FAILED && m.error != null) "\n${m.error}" else ""
-            b.meta.text = "$app$files$err"
-            b.status.text = when (m.status) {
-                Status.PENDING -> "Scheduled"
-                Status.SENDING -> "Sending…"
-                Status.SENT -> "Sent ✓"
-                Status.FAILED -> "Failed"
-            }
-            b.retry.visibility = if (m.status == Status.FAILED) View.VISIBLE else View.GONE
-
-            b.root.setOnClickListener {
-                if (m.status == Status.PENDING || m.status == Status.FAILED) {
-                    startActivity(
-                        Intent(this@MainActivity, EditMessageActivity::class.java)
-                            .putExtra(EditMessageActivity.EXTRA_ID, m.id)
-                    )
+        val pin = MaterialRadioButton(this).apply { id = View.generateViewId(); text = "PIN"; isChecked = true }
+        val password = MaterialRadioButton(this).apply { id = View.generateViewId(); text = "Password" }
+        val input = TextInputEditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        }
+        val inputLayout = TextInputLayout(this).apply {
+            hint = "PIN"
+            addView(input)
+            endIconMode = TextInputLayout.END_ICON_PASSWORD_TOGGLE
+        }
+        val type = RadioGroup(this).apply {
+            orientation = RadioGroup.HORIZONTAL
+            addView(pin)
+            addView(password)
+            setOnCheckedChangeListener { _, checked ->
+                val isPassword = checked == password.id
+                inputLayout.hint = if (isPassword) "Password" else "PIN"
+                input.inputType = if (isPassword) {
+                    InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                } else {
+                    InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
                 }
             }
-            b.retry.setOnClickListener {
-                startActivity(
-                    Intent(this@MainActivity, EditMessageActivity::class.java)
-                        .putExtra(EditMessageActivity.EXTRA_ID, m.id)
-                )
+        }
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, 0)
+            addView(info)
+            addView(type)
+            addView(inputLayout)
+        }
+        val builder = MaterialAlertDialogBuilder(this)
+            .setTitle("Auto-unlock")
+            .setIcon(R.drawable.ic_lock)
+            .setView(layout)
+            .setPositiveButton(if (enabled) "Update" else "Turn on") { _, _ ->
+                val value = input.text?.toString().orEmpty()
+                if (value.isEmpty()) return@setPositiveButton
+                val t = if (password.isChecked) UnlockSecret.Type.PASSWORD else UnlockSecret.Type.PIN
+                UnlockSecret.save(this, UnlockSecret.Secret(t, value))
+                Toast.makeText(this, "Auto-unlock is on. Test it with a message a few minutes from now.", Toast.LENGTH_LONG).show()
             }
-            b.delete.setOnClickListener {
-                AlertDialog.Builder(this@MainActivity)
-                    .setMessage("Delete this scheduled message?")
-                    .setPositiveButton("Delete") { _, _ ->
-                        Scheduler.cancel(this@MainActivity, m.id)
-                        MessageStore.delete(this@MainActivity, m.id)
-                        refresh()
-                    }
-                    .setNegativeButton(android.R.string.cancel, null)
-                    .show()
+            .setNegativeButton("Cancel", null)
+        if (enabled) {
+            builder.setNeutralButton("Turn off") { _, _ ->
+                UnlockSecret.clear(this)
+                Toast.makeText(this, "Auto-unlock is off", Toast.LENGTH_SHORT).show()
             }
         }
+        builder.show()
+    }
+
+    private fun shareLog() {
+        val f = DebugLog.file(this)
+        if (!f.exists() || f.length() == 0L) {
+            Toast.makeText(this, "The debug log is empty. Try sending a message first.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val uri = FileProvider.getUriForFile(this, "$packageName.files", f)
+        val send = Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_STREAM, uri)
+            .putExtra(Intent.EXTRA_SUBJECT, "WA Scheduler debug log")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        startActivity(Intent.createChooser(send, "Share debug log (includes text from your WhatsApp screen)"))
+    }
+
+    private fun dp(v: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, resources.displayMetrics)
+}
+
+/** Theme color lookup used by both screens. */
+fun themeColor(ctx: Context, @AttrRes attr: Int): Int {
+    val tv = TypedValue()
+    ctx.theme.resolveAttribute(attr, tv, true)
+    return if (tv.resourceId != 0) ContextCompat.getColor(ctx, tv.resourceId) else tv.data
+}
+
+/** ("9:30", "pm") in 12-hour locales, ("21:30", "") in 24-hour ones. */
+fun formatTime(ctx: Context, millis: Long): Pair<String, String> {
+    val d = Date(millis)
+    return if (AndroidDateFormat.is24HourFormat(ctx)) {
+        SimpleDateFormat("HH:mm", Locale.getDefault()).format(d) to ""
+    } else {
+        SimpleDateFormat("h:mm", Locale.getDefault()).format(d) to
+            SimpleDateFormat("a", Locale.getDefault()).format(d).lowercase(Locale.getDefault())
     }
 }
