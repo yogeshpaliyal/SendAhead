@@ -52,7 +52,7 @@ class EditMessageActivity : AppCompatActivity() {
             )?.use { c ->
                 if (c.moveToFirst()) {
                     val number = toWhatsAppNumber(c.getString(0).orEmpty())
-                    binding.targetPhone.isChecked = true
+                    binding.targetGroup.check(R.id.targetPhone)
                     binding.phone.setText(number)
                     renderTarget()
                     Toast.makeText(this, "${c.getString(1)}: +$number — check the country code", Toast.LENGTH_LONG).show()
@@ -95,7 +95,7 @@ class EditMessageActivity : AppCompatActivity() {
             messageId = existing.id
             binding.phone.setText(existing.phone)
             if (existing.byName) {
-                binding.targetName.isChecked = true
+                binding.targetGroup.check(R.id.targetName)
                 binding.chatName.setText(existing.chatName)
             }
             binding.message.setText(existing.text)
@@ -110,7 +110,11 @@ class EditMessageActivity : AppCompatActivity() {
         }
 
         binding.toolbar.setNavigationOnClickListener { finish() }
-        binding.targetGroup.addOnButtonCheckedListener { _, _, isChecked -> if (isChecked) renderTarget() }
+        // Use the id from the callback: when switching, the new button reports checked
+        // before the old one is unchecked, so reading isChecked here gives a stale answer.
+        binding.targetGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (isChecked) renderTarget(byName = checkedId == R.id.targetName)
+        }
         binding.chatNameLayout.setEndIconOnClickListener { pickChat() }
         binding.phoneLayout.setEndIconOnClickListener {
             try {
@@ -141,7 +145,7 @@ class EditMessageActivity : AppCompatActivity() {
         super.onResume()
         SendAccessibilityService.pickedChatName?.let {
             SendAccessibilityService.pickedChatName = null
-            binding.targetName.isChecked = true
+            binding.targetGroup.check(R.id.targetName)
             binding.chatName.setText(it)
             renderTarget()
         }
@@ -227,8 +231,9 @@ class EditMessageActivity : AppCompatActivity() {
     private fun selectedPackage() =
         if (binding.appBusiness.isChecked) ScheduledMessage.WHATSAPP_BUSINESS else ScheduledMessage.WHATSAPP
 
-    private fun renderTarget() {
-        val byName = binding.targetName.isChecked
+    private fun isByName() = binding.targetGroup.checkedButtonId == R.id.targetName
+
+    private fun renderTarget(byName: Boolean = isByName()) {
         binding.chatNameLayout.visibility = if (byName) View.VISIBLE else View.GONE
         binding.phoneLayout.visibility = if (byName) View.GONE else View.VISIBLE
     }
@@ -318,7 +323,7 @@ class EditMessageActivity : AppCompatActivity() {
         }
 
     private fun save(sendNow: Boolean) {
-        val byName = binding.targetName.isChecked
+        val byName = isByName()
         val chatName = binding.chatName.text?.toString()?.trim().orEmpty()
         val phone = if (byName) "" else binding.phone.text?.toString().orEmpty().filter { it.isDigit() }
         val text = binding.message.text?.toString().orEmpty()

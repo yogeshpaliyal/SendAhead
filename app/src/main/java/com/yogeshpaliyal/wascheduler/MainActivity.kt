@@ -1,6 +1,7 @@
 package com.yogeshpaliyal.wascheduler
 
 import android.Manifest
+import android.app.KeyguardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -330,6 +331,14 @@ class MainActivity : AppCompatActivity() {
                 startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
             }
         }
+        // Screen lock: like SKEDit's "Bypass screen lock". Only shown when the phone has a secure lock.
+        val km = getSystemService(KeyguardManager::class.java)
+        if (km.isDeviceSecure) {
+            val lockOk = UnlockSecret.isEnabled(this) || lockSetupSkipped()
+            items += SetupItem(lockOk, "Send while the phone is locked", "Save your PIN or password so the app can unlock it at send time") {
+                showAutoUnlockDialog()
+            }
+        }
         val missing = items.filterNot { it.ok }
         val maker = Build.MANUFACTURER.lowercase()
         val aggressiveOem = listOf("xiaomi", "redmi", "poco", "oppo", "vivo", "realme", "oneplus", "tecno", "infinix", "huawei", "honor")
@@ -488,16 +497,35 @@ class MainActivity : AppCompatActivity() {
                 val t = if (password.isChecked) UnlockSecret.Type.PASSWORD else UnlockSecret.Type.PIN
                 UnlockSecret.save(this, UnlockSecret.Secret(t, value))
                 Toast.makeText(this, "Auto-unlock is on. Test it with a message a few minutes from now.", Toast.LENGTH_LONG).show()
+                renderSetup()
             }
             .setNegativeButton("Cancel", null)
         if (enabled) {
             builder.setNeutralButton("Turn off") { _, _ ->
                 UnlockSecret.clear(this)
+                setLockSetupSkipped(true)
                 Toast.makeText(this, "Auto-unlock is off", Toast.LENGTH_SHORT).show()
+                renderSetup()
+            }
+        } else {
+            builder.setNeutralButton("Don't use") { _, _ ->
+                setLockSetupSkipped(true)
+                Toast.makeText(
+                    this,
+                    "OK. Messages due while the phone is locked will wait for you to unlock it.",
+                    Toast.LENGTH_LONG,
+                ).show()
+                renderSetup()
             }
         }
         builder.show()
     }
+
+    private fun lockSetupSkipped() =
+        getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("lock_setup_skipped", false)
+
+    private fun setLockSetupSkipped(v: Boolean) =
+        getSharedPreferences("settings", Context.MODE_PRIVATE).edit().putBoolean("lock_setup_skipped", v).apply()
 
     private fun shareLog() {
         val f = DebugLog.file(this)
