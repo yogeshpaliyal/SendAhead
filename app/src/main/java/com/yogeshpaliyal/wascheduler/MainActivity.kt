@@ -245,7 +245,7 @@ class MainActivity : AppCompatActivity() {
 
             val (label, bgAttr, fgAttr) = when (m.status) {
                 Status.PENDING -> Triple("Waiting", M.attr.colorTertiaryContainer, M.attr.colorOnTertiaryContainer)
-                Status.SENDING -> Triple("Sending", M.attr.colorPrimary, M.attr.colorOnPrimary)
+                Status.SENDING -> Triple("Sending", androidx.appcompat.R.attr.colorPrimary, M.attr.colorOnPrimary)
                 Status.SENT -> Triple("Sent", M.attr.colorPrimaryContainer, M.attr.colorOnPrimaryContainer)
                 Status.FAILED -> Triple("Not sent", M.attr.colorErrorContainer, M.attr.colorOnErrorContainer)
             }
