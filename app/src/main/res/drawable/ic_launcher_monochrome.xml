@@ -6,7 +6,11 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     <group
-        android:translateY="-0.6">
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.8"
+        android:scaleY="0.8"
+        android:translateY="-0.5">
     <path
         android:pathData="M65.44,59.35 A15.5,15.5 0 1 1 52.69,42.74"
         android:strokeWidth="5.2"
