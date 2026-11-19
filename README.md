@@ -1,3 +1,5 @@
+<img src="docs/icon.png" width="96" alt="Sendahead icon" />
+
 # Sendahead
 
 Write it now, send it ahead of time. An open-source, fully offline scheduler for WhatsApp messages on Android, with attachments.
