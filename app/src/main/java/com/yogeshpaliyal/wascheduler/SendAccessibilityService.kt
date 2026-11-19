@@ -3,6 +3,7 @@ package com.yogeshpaliyal.wascheduler
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
+import android.graphics.Rect
 import android.app.KeyguardManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
@@ -201,10 +202,9 @@ class SendAccessibilityService : AccessibilityService() {
                 !n.text.isNullOrBlank() && (id.endsWith("row_name") || id.endsWith("contact_name") || id.endsWith("_name"))
             }?.text
         }
-        val raw = byId
-            ?: src?.let { root -> findNode(root) { !it.isEditable && !it.text.isNullOrBlank() }?.text }
-            ?: event.text.firstOrNull { !it.isNullOrBlank() }
-            ?: src?.contentDescription
+        // Only accept taps on a chat row (not the search box, Back, dial pad, …).
+        val isRow = src?.viewIdResourceName?.endsWith("contactpicker_row_container") == true
+        val raw = byId ?: if (isRow) src?.contentDescription else null
         val name = raw?.let { clean(it) }
         if (name.isNullOrBlank() || name.length > 100 || name.equals("Search", true)) return true
         pickingPkg = null
@@ -246,8 +246,7 @@ class SendAccessibilityService : AccessibilityService() {
         }
 
         val target = findSendButton(root, msg.packageName) ?: return
-        val clickable = clickableAncestor(target) ?: return
-        if (clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+        if (clickNode(target)) {
             clicked = true
             log("Clicked send (${target.viewIdResourceName ?: target.contentDescription}) for ${msg.id}")
             // Give WhatsApp a moment to actually send before leaving the chat.
@@ -298,8 +297,7 @@ class SendAccessibilityService : AccessibilityService() {
                     val submitted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
                         (keyguardRoot()?.let { findEditable(it) } ?: field)
                             .performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
-                    if (!submitted) keyguardRoot()?.let { findEnterKey(it) }?.let { clickableAncestor(it) }
-                        ?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    if (!submitted) keyguardRoot()?.let { findEnterKey(it) }?.let { clickNode(it) }
                     checkUnlockResult()
                 }, 300)
             }
@@ -329,14 +327,12 @@ class SendAccessibilityService : AccessibilityService() {
         if (index >= pin.length) {
             // Many lock screens auto-confirm; otherwise press Enter/OK.
             handler.postDelayed({
-                if (isLocked()) keyguardRoot()?.let { findEnterKey(it) }?.let { clickableAncestor(it) }
-                    ?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                if (isLocked()) keyguardRoot()?.let { findEnterKey(it) }?.let { clickNode(it) }
                 checkUnlockResult()
             }, 600)
             return
         }
-        keyguardRoot()?.let { findDigitKey(it, pin[index]) }?.let { clickableAncestor(it) }
-            ?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        keyguardRoot()?.let { findDigitKey(it, pin[index]) }?.let { clickNode(it) }
         handler.postDelayed({ typePin(pin, index + 1) }, 150)
     }
 
@@ -410,8 +406,7 @@ class SendAccessibilityService : AccessibilityService() {
                 lastSeen = visibleTexts(root)
                 val row = findChatRow(root, wanted)
                 if (row != null) {
-                    val target = clickableAncestor(row) ?: return
-                    if (target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    if (clickNode(rowContainer(row))) {
                         stage = Stage.SELECTED
                         stageAt = now
                         log("Name flow: clicked chat row '${clean(row.text ?: row.contentDescription ?: "")}'")
@@ -427,7 +422,7 @@ class SendAccessibilityService : AccessibilityService() {
                                 norm(n.contentDescription) == "search" || norm(n.text).startsWith("search")
                             }
                         if (search != null) {
-                            val ok = clickableAncestor(search)?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                            val ok = clickNode(search)
                             searchClicks++
                             log("Name flow: search click #$searchClicks ok=$ok")
                         } else {
@@ -454,7 +449,7 @@ class SendAccessibilityService : AccessibilityService() {
             Stage.SELECTED -> {
                 if (now - stageAt < 700) return
                 val send = findSendButton(root, msg.packageName) ?: return
-                if (clickableAncestor(send)?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) {
+                if (clickNode(send)) {
                     stage = Stage.SENT_ONCE
                     stageAt = now
                     log("Name flow: clicked send in picker")
@@ -465,7 +460,7 @@ class SendAccessibilityService : AccessibilityService() {
                 // With attachments WhatsApp shows a preview screen with its own Send button.
                 val send = findSendButton(root, msg.packageName)
                 if (send != null) {
-                    clickableAncestor(send)?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    clickNode(send)
                 } else if (now - stageAt < 4_000) {
                     return
                 }
@@ -484,6 +479,10 @@ class SendAccessibilityService : AccessibilityService() {
      */
     private fun findChatRow(root: AccessibilityNodeInfo, wanted: String): AccessibilityNodeInfo? {
         if (wanted.isEmpty()) return null
+        // WhatsApp "Send to" list: contactpicker_row_name holds the exact chat name.
+        findNode(root) { n ->
+            n.viewIdResourceName?.endsWith("contactpicker_row_name") == true && norm(n.text) == wanted
+        }?.let { return it }
         findNode(root) { n ->
             !n.isEditable && (norm(n.text) == wanted || norm(n.contentDescription) == wanted)
         }?.let { return it }
@@ -537,6 +536,42 @@ class SendAccessibilityService : AccessibilityService() {
             findByLabel(node.getChild(i), depth + 1)?.let { return it }
         }
         return null
+    }
+
+    /**
+     * Clicks [node]: clickable ancestor → the node's own click action → a real tap on its bounds.
+     * WhatsApp's "Send to" rows (ListView items, contactpicker_row_container) report clickable=false,
+     * so the tap fallback is what makes them work.
+     */
+    private fun clickNode(node: AccessibilityNodeInfo): Boolean {
+        clickableAncestor(node)?.let { if (it.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true }
+        if (node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+        return tapOn(node)
+    }
+
+    private fun tapOn(node: AccessibilityNodeInfo): Boolean {
+        val r = Rect()
+        node.getBoundsInScreen(r)
+        if (r.isEmpty) return false
+        val path = Path().apply { moveTo(r.exactCenterX(), r.exactCenterY()) }
+        val ok = dispatchGesture(
+            GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 60)).build(),
+            null, null,
+        )
+        log("Tap at ${r.centerX()},${r.centerY()} on ${node.viewIdResourceName ?: node.className} ok=$ok")
+        return ok
+    }
+
+    /** The whole row for a matched name node (bigger, reliable tap target). */
+    private fun rowContainer(node: AccessibilityNodeInfo): AccessibilityNodeInfo {
+        var n: AccessibilityNodeInfo? = node
+        var hops = 0
+        while (n != null && hops < 6) {
+            if (n.viewIdResourceName?.endsWith("contactpicker_row_container") == true) return n
+            n = n.parent
+            hops++
+        }
+        return node
     }
 
     private fun clickableAncestor(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
