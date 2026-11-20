@@ -551,6 +551,15 @@ class SendAccessibilityService : AccessibilityService() {
         val name = msg.chatName?.trim() ?: return
         val now = System.currentTimeMillis()
         val names = acceptedNames(name)
+        // Safety: act only on WhatsApp's "Send to" screen. If WhatsApp is showing anything else
+        // (chat list, a conversation, settings…), touch nothing and let the timeout fail the message.
+        if (!isSharePicker(root, msg.packageName)) {
+            if (now - lastOffPickerLog > 3_000) {
+                lastOffPickerLog = now
+                log("Name flow: not on the Send to screen; waiting without touching anything")
+            }
+            return
+        }
         when (stage) {
             Stage.FIND_CHAT -> {
                 // Let the picker finish loading its sections before touching anything.
@@ -633,8 +642,13 @@ class SendAccessibilityService : AccessibilityService() {
                     // This WhatsApp version doesn't expose ticks: trust the single filtered match.
                     else -> ticked.isEmpty()
                 }
-                if (!verified) {
+                // WhatsApp also lists the selected chats in the footer ("recipients"): it must be exactly ours.
+                val recipients = root.findAccessibilityNodeInfosByViewId("${msg.packageName}:id/recipients")
+                    ?.firstOrNull()?.text?.let { norm(it) }
+                val footerOk = recipients == null || recipients in names
+                if (!verified || !footerOk) {
                     if (now - stageAt < 2_500) return // UI may still be catching up
+                    log("Name flow: footer recipients='$recipients'")
                     val wrong = ticked.map { rowName(it) }
                     log("Name flow: selection not confirmed. ticked=$wrong target=${target?.let { rowName(it) }}")
                     dumpScreen("selection not confirmed")
@@ -686,6 +700,13 @@ class SendAccessibilityService : AccessibilityService() {
         }, 300)
     }
 
+    private var lastOffPickerLog = 0L
+
+    private fun isSharePicker(root: AccessibilityNodeInfo, pkg: String): Boolean =
+        root.findAccessibilityNodeInfosByViewId("$pkg:id/contactpicker_row_container")?.isNotEmpty() == true ||
+            root.findAccessibilityNodeInfosByViewId("$pkg:id/contact_picker_layout")?.isNotEmpty() == true ||
+            root.findAccessibilityNodeInfosByViewId("$pkg:id/search_src_text")?.isNotEmpty() == true
+
     /** Leave WhatsApp's share screen without sending and fail the message with [reason]. */
     private fun abortNameFlow(msg: ScheduledMessage, reason: String) {
         clicked = true // stop all further taps for this message
@@ -718,40 +739,15 @@ class SendAccessibilityService : AccessibilityService() {
      * the row description. Rows are deduplicated by screen position.
      */
     private fun matchingRows(root: AccessibilityNodeInfo, names: Set<String>): List<AccessibilityNodeInfo> {
+        // Only rows of WhatsApp's "Send to" list. No fallback: never match anything on other screens.
         val rows = collect(root) { it.viewIdResourceName?.endsWith("contactpicker_row_container") == true }
-        if (rows.isEmpty()) {
-            // Unknown layout: fall back to a single exact text match.
-            return names.mapNotNull { findChatRow(root, it) }.map { rowContainer(it) }.distinctBy {
-                Rect().also { r -> it.getBoundsInScreen(r) }.flattenToString()
-            }
-        }
         return rows.filter { row ->
             val nameView = findNode(row) { it.viewIdResourceName?.endsWith("contactpicker_row_name") == true }
-            norm(nameView?.text) in names || norm(row.contentDescription) in names
+            val label = norm(row.contentDescription) // "name, subtitle", e.g. "sendahead group, you"
+            norm(nameView?.text) in names || names.any { n -> label == n || label.startsWith("$n, ") }
         }.distinctBy { Rect().also { r -> it.getBoundsInScreen(r) }.flattenToString() }
     }
 
-    /**
-     * Finds the chat row for [wanted] (already normalised). Exact match on text or content
-     * description first; then a unique row whose label starts with the name (e.g. "Family, 12 members").
-     */
-    private fun findChatRow(root: AccessibilityNodeInfo, wanted: String): AccessibilityNodeInfo? {
-        if (wanted.isEmpty()) return null
-        // WhatsApp "Send to" list: contactpicker_row_name holds the exact chat name.
-        findNode(root) { n ->
-            n.viewIdResourceName?.endsWith("contactpicker_row_name") == true && norm(n.text) == wanted
-        }?.let { return it }
-        findNode(root) { n ->
-            !n.isEditable && (norm(n.text) == wanted || norm(n.contentDescription) == wanted)
-        }?.let { return it }
-        val prefixed = mutableListOf<AccessibilityNodeInfo>()
-        collect(root) { n ->
-            !n.isEditable && listOf(norm(n.text), norm(n.contentDescription)).any {
-                it.startsWith("$wanted ") || it.startsWith("$wanted,")
-            }
-        }.let { prefixed += it }
-        return prefixed.singleOrNull()
-    }
 
     private fun visibleTexts(root: AccessibilityNodeInfo): List<String> =
         collect(root) { !it.text.isNullOrBlank() && !it.isEditable }
