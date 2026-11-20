@@ -53,7 +53,7 @@ class IntroActivity : AppCompatActivity() {
         Page(
             "Stays on your phone",
             "No account and no internet permission. Your messages and files never leave this phone.",
-            R.drawable.ic_lock, M.attr.colorSecondaryContainer, M.attr.colorOnSecondaryContainer,
+            R.drawable.ic_lock, androidx.appcompat.R.attr.colorPrimary, M.attr.colorOnPrimary,
         ),
     )
 
