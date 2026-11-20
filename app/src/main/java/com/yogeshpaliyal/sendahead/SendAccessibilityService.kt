@@ -48,6 +48,12 @@ class SendAccessibilityService : AccessibilityService() {
     private var pickingPkg: String? = null
     private var searchClicks = 0
     private var typedSearch = false
+    /** What gets typed into WhatsApp's search box (may fall back to a shorter legacy name). */
+    private var searchTerm = ""
+    private var triedShortName = false
+    /** A matching row must stay at the same place for a moment before it is tapped. */
+    private var candidateBounds: Rect? = null
+    private var candidateSince = 0L
     /** What the name flow last saw on screen, for a useful error message. */
     private var lastSeen: List<String> = emptyList()
 
@@ -197,6 +203,10 @@ class SendAccessibilityService : AccessibilityService() {
         stageAt = System.currentTimeMillis()
         searchClicks = 0
         typedSearch = false
+        searchTerm = msg.chatName?.trim().orEmpty()
+        triedShortName = false
+        candidateBounds = null
+        candidateSince = 0L
         lastSeen = emptyList()
         launched = false
         waitingForUnlock = false
@@ -226,6 +236,7 @@ class SendAccessibilityService : AccessibilityService() {
         try {
             startActivity(WhatsAppLauncher.buildIntent(this, msg))
             launched = true
+            stageAt = System.currentTimeMillis() // settle timers start when WhatsApp actually opens
             log("Opened WhatsApp for id=${msg.id}")
             return true
         } catch (e: ActivityNotFoundException) {
@@ -274,12 +285,22 @@ class SendAccessibilityService : AccessibilityService() {
         }
         // Only accept taps on a chat row (not the search box, Back, dial pad, …).
         val isRow = src?.viewIdResourceName?.endsWith("contactpicker_row_container") == true
-        val raw = byId ?: if (isRow) src?.contentDescription else null
+        // The click event's source often has no children, and its description is "Name, members"
+        // (e.g. "Family, You"). Find the row's own name view on screen inside the tapped row instead.
+        val byBounds = if (src != null) {
+            val rowRect = Rect().also { src.getBoundsInScreen(it) }
+            rootInActiveWindow?.let { r ->
+                collect(r) { it.viewIdResourceName?.endsWith("contactpicker_row_name") == true && !it.text.isNullOrBlank() }
+                    .firstOrNull { n -> Rect().also { b -> n.getBoundsInScreen(b) }.let { rowRect.contains(it) } }
+                    ?.text
+            }
+        } else null
+        val raw = byId ?: byBounds ?: if (isRow) src?.contentDescription else null
         val name = raw?.let { clean(it) }
         if (name.isNullOrBlank() || name.length > 100 || name.equals("Search", true)) return true
         pickingPkg = null
         pickedChatName = name
-        log("Picked chat: '$name' (event text=${event.text}, id-based=${byId != null})")
+        log("Picked chat: '$name' (event text=${event.text}, id-based=${byId != null}, bounds-based=${byBounds != null})")
         // Bring the edit screen back (finishes WhatsApp's picker if it's in our task) — nothing is sent.
         startActivity(
             Intent(this, EditMessageActivity::class.java).addFlags(
@@ -466,63 +487,110 @@ class SendAccessibilityService : AccessibilityService() {
 
     // ---------- WhatsApp ----------
 
-    /** Send-by-name: WhatsApp's "Send to" picker → find chat → tap → Send → (preview) Send. */
+    /**
+     * Send-by-name, built so a wrong chat can never receive the message:
+     * wait for WhatsApp's "Send to" screen to settle → type the name into its search → require exactly
+     * one matching row → tap it once it has stopped moving → confirm that row (and only that row) is
+     * ticked → Send → (attachments) Send again on the preview. Any doubt: back out, send nothing.
+     */
     private fun tryNameFlow(msg: ScheduledMessage, root: AccessibilityNodeInfo) {
         val name = msg.chatName?.trim() ?: return
         val now = System.currentTimeMillis()
+        val names = acceptedNames(name)
         when (stage) {
-            Stage.FIND_CHAT, Stage.SEARCHING -> {
-                val wanted = norm(name)
-                lastSeen = visibleTexts(root)
-                val row = findChatRow(root, wanted)
-                if (row != null) {
-                    if (clickNode(rowContainer(row))) {
-                        stage = Stage.SELECTED
-                        stageAt = now
-                        log("Name flow: clicked chat row '${clean(row.text ?: row.contentDescription ?: "")}'")
+            Stage.FIND_CHAT -> {
+                // Let the picker finish loading its sections before touching anything.
+                if (now - stageAt < 1_200) return
+                if (searchField(root, msg.packageName) == null) {
+                    val search = root.findAccessibilityNodeInfosByViewId("${msg.packageName}:id/menuitem_search")
+                        ?.firstOrNull { it.isVisibleToUser }
+                        ?: findNode(root) { n -> norm(n.contentDescription) == "search" }
+                    if (search != null && searchClicks < 3) {
+                        searchClicks++
+                        log("Name flow: search click #$searchClicks ok=${clickNode(search)}")
+                    } else {
+                        lastSeen = visibleTexts(root)
                     }
                     return
                 }
-                val field = findEditable(root)
-                if (stage == Stage.FIND_CHAT || (field == null && now - stageAt > 4_000 && searchClicks < 3)) {
-                    if (field == null) {
-                        val search = root.findAccessibilityNodeInfosByViewId("${msg.packageName}:id/menuitem_search")
-                            ?.firstOrNull { it.isVisibleToUser }
-                            ?: findNode(root) { n ->
-                                norm(n.contentDescription) == "search" || norm(n.text).startsWith("search")
-                            }
-                        if (search != null) {
-                            val ok = clickNode(search)
-                            searchClicks++
-                            log("Name flow: search click #$searchClicks ok=$ok")
-                        } else {
-                            log("Name flow: no row and no search button yet. Visible: ${lastSeen.joinToString(" | ").take(300)}")
-                        }
-                    }
-                    stage = Stage.SEARCHING
-                    stageAt = now
-                    return
-                }
-                if (field == null) return
-                if (norm(field.text) != wanted) {
+                stage = Stage.SEARCHING
+                stageAt = now
+            }
+            Stage.SEARCHING -> {
+                val field = searchField(root, msg.packageName) ?: return
+                if (norm(field.text) != norm(searchTerm)) {
                     field.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
                     val ok = field.performAction(
                         AccessibilityNodeInfo.ACTION_SET_TEXT,
-                        Bundle().apply {
-                            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, name)
-                        },
+                        Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, searchTerm) },
                     )
-                    if (ok) typedSearch = true
-                    log("Name flow: typed '$name' into search ok=$ok")
+                    typedSearch = typedSearch || ok
+                    log("Name flow: typed '$searchTerm' into search ok=$ok")
+                    stageAt = now
+                    candidateBounds = null
+                    return
+                }
+                // Give the filtered list time to update.
+                if (now - stageAt < 1_000) return
+                lastSeen = visibleTexts(root)
+                val rows = matchingRows(root, names)
+                when {
+                    rows.isEmpty() -> {
+                        // Older saved names look like "Family, You": retry with just "Family" once.
+                        val short = name.substringBeforeLast(", ", "")
+                        if (!triedShortName && short.isNotBlank() && now - stageAt > 3_000) {
+                            triedShortName = true
+                            searchTerm = short
+                            log("Name flow: no match for '$name', searching '$short'")
+                        }
+                    }
+                    rows.size > 1 -> {
+                        log("Name flow: ${rows.size} chats match '$name'; refusing to guess")
+                        abortNameFlow(msg, "More than one chat matches \"$name\". Nothing was sent.")
+                    }
+                    else -> {
+                        val row = rows.single()
+                        val bounds = Rect().also { row.getBoundsInScreen(it) }
+                        if (bounds != candidateBounds) {
+                            candidateBounds = bounds
+                            candidateSince = now
+                            return
+                        }
+                        if (now - candidateSince < 400) return
+                        if (clickNode(row)) {
+                            stage = Stage.SELECTED
+                            stageAt = now
+                            log("Name flow: tapped row '${rowName(row)}' at $bounds")
+                        }
+                    }
                 }
             }
             Stage.SELECTED -> {
-                if (now - stageAt < 700) return
+                if (now - stageAt < 600) return
+                val rows = matchingRows(root, names)
+                val ticked = collect(root) {
+                    it.isCheckable && it.isChecked && it.viewIdResourceName?.endsWith("contactpicker_row_container") == true
+                }
+                val target = rows.singleOrNull()
+                val verified = when {
+                    target == null -> false
+                    target.isCheckable -> target.isChecked && ticked.size == 1
+                    // This WhatsApp version doesn't expose ticks: trust the single filtered match.
+                    else -> ticked.isEmpty()
+                }
+                if (!verified) {
+                    if (now - stageAt < 2_500) return // UI may still be catching up
+                    val wrong = ticked.map { rowName(it) }
+                    log("Name flow: selection not confirmed. ticked=$wrong target=${target?.let { rowName(it) }}")
+                    dumpScreen("selection not confirmed")
+                    abortNameFlow(msg, "Couldn't confirm \"$name\" was selected, so nothing was sent.")
+                    return
+                }
                 val send = findSendButton(root, msg.packageName) ?: return
                 if (clickNode(send)) {
                     stage = Stage.SENT_ONCE
                     stageAt = now
-                    log("Name flow: clicked send in picker")
+                    log("Name flow: verified '${rowName(target!!)}' is the only selected chat; clicked send")
                 }
             }
             Stage.SENT_ONCE -> {
@@ -541,6 +609,51 @@ class SendAccessibilityService : AccessibilityService() {
                 }, 2_000)
             }
         }
+    }
+
+    /** Leave WhatsApp's share screen without sending and fail the message with [reason]. */
+    private fun abortNameFlow(msg: ScheduledMessage, reason: String) {
+        clicked = true // stop all further taps for this message
+        performGlobalAction(GLOBAL_ACTION_BACK)
+        handler.postDelayed({ performGlobalAction(GLOBAL_ACTION_BACK) }, 400)
+        handler.postDelayed({
+            clicked = false
+            finish(msg, success = false, error = reason)
+        }, 900)
+    }
+
+    private fun searchField(root: AccessibilityNodeInfo, pkg: String): AccessibilityNodeInfo? =
+        root.findAccessibilityNodeInfosByViewId("$pkg:id/search_src_text")?.firstOrNull { it.isVisibleToUser }
+            ?: findEditable(root)
+
+    /** The saved name, plus "Family" for an older saved "Family, You". */
+    private fun acceptedNames(name: String): Set<String> {
+        val full = norm(name)
+        val short = norm(name.substringBeforeLast(", ", ""))
+        return if (short.isNotEmpty()) setOf(full, short) else setOf(full)
+    }
+
+    private fun rowName(row: AccessibilityNodeInfo): String =
+        findNode(row) { it.viewIdResourceName?.endsWith("contactpicker_row_name") == true }?.text?.let { clean(it) }
+            ?: row.contentDescription?.let { clean(it) }
+            ?: ""
+
+    /**
+     * Visible chat rows whose name is one of [names]. Uses the row's own name view; falls back to
+     * the row description. Rows are deduplicated by screen position.
+     */
+    private fun matchingRows(root: AccessibilityNodeInfo, names: Set<String>): List<AccessibilityNodeInfo> {
+        val rows = collect(root) { it.viewIdResourceName?.endsWith("contactpicker_row_container") == true }
+        if (rows.isEmpty()) {
+            // Unknown layout: fall back to a single exact text match.
+            return names.mapNotNull { findChatRow(root, it) }.map { rowContainer(it) }.distinctBy {
+                Rect().also { r -> it.getBoundsInScreen(r) }.flattenToString()
+            }
+        }
+        return rows.filter { row ->
+            val nameView = findNode(row) { it.viewIdResourceName?.endsWith("contactpicker_row_name") == true }
+            norm(nameView?.text) in names || norm(row.contentDescription) in names
+        }.distinctBy { Rect().also { r -> it.getBoundsInScreen(r) }.flattenToString() }
     }
 
     /**
