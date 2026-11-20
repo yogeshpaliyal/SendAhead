@@ -41,6 +41,10 @@ import com.google.android.material.radiobutton.MaterialRadioButton
 import com.google.android.material.shape.ShapeAppearanceModel
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
+import com.google.android.material.bottomsheet.BottomSheetBehavior
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import androidx.core.widget.doAfterTextChanged
+import com.yogeshpaliyal.sendahead.databinding.SheetAutoUnlockBinding
 import com.yogeshpaliyal.sendahead.databinding.ActivityMainBinding
 import com.yogeshpaliyal.sendahead.databinding.ItemHeaderBinding
 import com.yogeshpaliyal.sendahead.databinding.ItemMessageBinding
@@ -456,79 +460,97 @@ class MainActivity : AppCompatActivity() {
     // ---------- Auto-unlock ----------
 
     private fun showAutoUnlockDialog() {
-        val pad = dp(24f).toInt()
+        val sheet = BottomSheetDialog(this)
+        val b = SheetAutoUnlockBinding.inflate(layoutInflater)
+        sheet.setContentView(b.root)
+        sheet.behavior.state = BottomSheetBehavior.STATE_EXPANDED
+        sheet.behavior.skipCollapsed = true
+
         val enabled = UnlockSecret.isEnabled(this)
-        val info = TextView(this).apply {
-            text = (if (enabled) "Auto-unlock is on.\n\n" else "Auto-unlock is off.\n\n") +
-                "If your phone is locked when a message is due, the app types this PIN or password on the lock screen.\n\n" +
-                "It's stored encrypted with a key that never leaves this phone, and app backups are off. " +
-                "The app tries once per message. If that fails, auto-unlock turns itself off.\n\n" +
-                "Patterns and fingerprint-only locks aren't supported. Use this only on your own phone."
-            setTextAppearance(M.style.TextAppearance_Material3_BodyMedium)
+        b.status.text = if (enabled) "On" else "Off"
+        b.status.backgroundTintList = ColorStateList.valueOf(
+            themeColor(this, if (enabled) M.attr.colorPrimaryContainer else M.attr.colorSurfaceContainerHighest)
+        )
+        b.status.setTextColor(themeColor(this, if (enabled) M.attr.colorOnPrimaryContainer else M.attr.colorOnSurfaceVariant))
+
+        // Rules as icon rows rather than a paragraph.
+        val onCard = themeColor(this, M.attr.colorOnSurfaceVariant)
+        listOf(
+            R.drawable.ic_lock to "Encrypted with a key that never leaves this phone",
+            R.drawable.ic_refresh to "One try per message. If it fails, auto-unlock turns itself off",
+            R.drawable.ic_error to "Patterns and fingerprint-only locks aren't supported",
+        ).forEach { (icon, text) ->
+            b.rules.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(8f).toInt(), 0, dp(8f).toInt())
+                addView(ImageView(context).apply {
+                    setImageResource(icon)
+                    imageTintList = ColorStateList.valueOf(onCard)
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    layoutParams = LinearLayout.LayoutParams(dp(20f).toInt(), dp(20f).toInt()).apply { marginEnd = dp(14f).toInt() }
+                })
+                addView(TextView(context).apply {
+                    this.text = text
+                    setTextAppearance(M.style.TextAppearance_Material3_BodyMedium)
+                    setTextColor(onCard)
+                })
+            })
         }
-        val pin = MaterialRadioButton(this).apply { id = View.generateViewId(); text = "PIN"; isChecked = true }
-        val password = MaterialRadioButton(this).apply { id = View.generateViewId(); text = "Password" }
-        val input = TextInputEditText(this).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+
+        fun isPassword() = b.typeGroup.checkedButtonId == R.id.typePassword
+        fun applyType(password: Boolean) {
+            b.secretLayout.hint = if (password) "Your password" else "Your PIN"
+            b.secretLayout.error = null
+            b.secret.inputType = if (password) {
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            } else {
+                InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            }
+            b.secret.setSelection(b.secret.text?.length ?: 0)
         }
-        val inputLayout = TextInputLayout(this).apply {
-            hint = "PIN"
-            addView(input)
-            endIconMode = TextInputLayout.END_ICON_PASSWORD_TOGGLE
-        }
-        val type = RadioGroup(this).apply {
-            orientation = RadioGroup.HORIZONTAL
-            addView(pin)
-            addView(password)
-            setOnCheckedChangeListener { _, checked ->
-                val isPassword = checked == password.id
-                inputLayout.hint = if (isPassword) "Password" else "PIN"
-                input.inputType = if (isPassword) {
-                    InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-                } else {
-                    InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        // checkedId from the callback: isChecked can be stale while the group switches.
+        b.typeGroup.addOnButtonCheckedListener { _, id, checked -> if (checked) applyType(id == R.id.typePassword) }
+        applyType(false)
+
+        b.save.text = if (enabled) "Update" else "Turn on"
+        b.save.setIconResource(R.drawable.ic_check)
+        b.save.iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
+        b.save.setOnClickListener {
+            val value = b.secret.text?.toString().orEmpty()
+            val password = isPassword()
+            when {
+                value.isEmpty() -> {
+                    b.secretLayout.error = if (password) "Enter your password" else "Enter your PIN"
+                    return@setOnClickListener
+                }
+                !password && (value.length < 4 || !value.all { it.isDigit() }) -> {
+                    b.secretLayout.error = "A PIN is at least 4 digits"
+                    return@setOnClickListener
                 }
             }
+            val t = if (password) UnlockSecret.Type.PASSWORD else UnlockSecret.Type.PIN
+            UnlockSecret.save(this, UnlockSecret.Secret(t, value))
+            sheet.dismiss()
+            Toast.makeText(this, "Auto-unlock is on. Test it with a message a few minutes from now.", Toast.LENGTH_LONG).show()
+            renderSetup()
         }
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(pad, pad / 2, pad, 0)
-            addView(info)
-            addView(type)
-            addView(inputLayout)
+        b.secret.doAfterTextChanged { b.secretLayout.error = null }
+
+        b.secondary.text = if (enabled) "Turn off" else "Don't use"
+        b.secondary.setOnClickListener {
+            if (enabled) UnlockSecret.clear(this)
+            setLockSetupSkipped(true)
+            sheet.dismiss()
+            Toast.makeText(
+                this,
+                if (enabled) "Auto-unlock is off" else "OK. Messages due while the phone is locked will wait for you to unlock it.",
+                Toast.LENGTH_LONG,
+            ).show()
+            renderSetup()
         }
-        val builder = MaterialAlertDialogBuilder(this)
-            .setTitle("Auto-unlock")
-            .setIcon(R.drawable.ic_lock)
-            .setView(layout)
-            .setPositiveButton(if (enabled) "Update" else "Turn on") { _, _ ->
-                val value = input.text?.toString().orEmpty()
-                if (value.isEmpty()) return@setPositiveButton
-                val t = if (password.isChecked) UnlockSecret.Type.PASSWORD else UnlockSecret.Type.PIN
-                UnlockSecret.save(this, UnlockSecret.Secret(t, value))
-                Toast.makeText(this, "Auto-unlock is on. Test it with a message a few minutes from now.", Toast.LENGTH_LONG).show()
-                renderSetup()
-            }
-            .setNegativeButton("Cancel", null)
-        if (enabled) {
-            builder.setNeutralButton("Turn off") { _, _ ->
-                UnlockSecret.clear(this)
-                setLockSetupSkipped(true)
-                Toast.makeText(this, "Auto-unlock is off", Toast.LENGTH_SHORT).show()
-                renderSetup()
-            }
-        } else {
-            builder.setNeutralButton("Don't use") { _, _ ->
-                setLockSetupSkipped(true)
-                Toast.makeText(
-                    this,
-                    "OK. Messages due while the phone is locked will wait for you to unlock it.",
-                    Toast.LENGTH_LONG,
-                ).show()
-                renderSetup()
-            }
-        }
-        builder.show()
+
+        sheet.show()
     }
 
     private fun lockSetupSkipped() =
