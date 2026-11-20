@@ -19,9 +19,11 @@ Write it now, send it ahead of time. An open-source, fully offline scheduler for
 
 <table>
   <tr>
-    <td align="center"><img src="docs/screenshots/home.png" width="200" alt="Scheduled list: messages grouped by day, each with its send time, recipient, text and a Waiting label"><br><sub>Everything waiting to send</sub></td>
-    <td align="center"><img src="docs/screenshots/compose.png" width="200" alt="New message: contact or group, WhatsApp or Business, message, attachments, and date and time tiles with quick-time chips"><br><sub>Write it, pick a time</sub></td>
-    <td align="center"><img src="docs/screenshots/unlock.png" width="200" alt="Send while locked sheet: PIN or password, how it's stored, Turn on button"><br><sub>Sends even when locked</sub></td>
+    <td align="center"><img src="fastlane/metadata/android/en-US/images/phoneScreenshots/1.png" width="160" alt="Write it now, send it later"></td>
+    <td align="center"><img src="fastlane/metadata/android/en-US/images/phoneScreenshots/2.png" width="160" alt="Pick the moment"></td>
+    <td align="center"><img src="fastlane/metadata/android/en-US/images/phoneScreenshots/3.png" width="160" alt="Contacts and groups too"></td>
+    <td align="center"><img src="fastlane/metadata/android/en-US/images/phoneScreenshots/4.png" width="160" alt="Sends even when locked"></td>
+    <td align="center"><img src="fastlane/metadata/android/en-US/images/phoneScreenshots/5.png" width="160" alt="Nothing leaves your phone"></td>
   </tr>
 </table>
 
