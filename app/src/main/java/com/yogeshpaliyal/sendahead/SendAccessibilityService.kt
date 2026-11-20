@@ -213,10 +213,14 @@ class SendAccessibilityService : AccessibilityService() {
         launchPending = false
         launchAttempts = 0
         seenWhatsApp = false
+        traceStage = null
+        dumpedStuckStage = null
+        lastTrace = 0L
         MessageStore.updateStatus(this, id, Status.SENDING)
         // Keep the keyboard out of the way while typing into WhatsApp's search (restored in finish()).
         if (msg.byName) runCatching { softKeyboardController.showMode = SHOW_MODE_HIDDEN }
         log("Start send id=$id to=${msg.targetLabel} pkg=${msg.packageName} files=${msg.attachments.size} locked=${isLocked()}")
+        log("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, Android ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT}), SendAhead ${BuildConfig.VERSION_NAME}, WhatsApp ${whatsAppVersion(msg.packageName)}")
         if (isLocked()) {
             // Ask Android to dismiss the lock screen (instant for Swipe; shows the PIN prompt otherwise).
             // WhatsApp is opened by onUnlocked(), whichever way the phone actually gets unlocked.
@@ -311,6 +315,41 @@ class SendAccessibilityService : AccessibilityService() {
             launchWhatsApp(msg)
         }
         return false
+    }
+
+    private fun whatsAppVersion(pkg: String): String = runCatching {
+        @Suppress("DEPRECATION")
+        packageManager.getPackageInfo(pkg, 0).versionName ?: "?"
+    }.getOrDefault("not installed")
+
+    private var lastTrace = 0L
+    private var traceStage: Stage? = null
+    private var traceStageSince = 0L
+    private var dumpedStuckStage: Stage? = null
+
+    /**
+     * Every 2s while sending to a group/contact by name: where the flow is and what's on screen.
+     * If one stage lasts more than 10s, also saves one screen dump for that stage.
+     */
+    private fun traceNameFlow(msg: ScheduledMessage, root: AccessibilityNodeInfo?) {
+        val now = System.currentTimeMillis()
+        if (traceStage != stage) {
+            traceStage = stage
+            traceStageSince = now
+        }
+        val inStage = now - traceStageSince
+        if (inStage > 10_000 && dumpedStuckStage != stage) {
+            dumpedStuckStage = stage
+            dumpScreen("stuck in $stage for ${inStage / 1000}s")
+        }
+        if (now - lastTrace < 2_000) return
+        lastTrace = now
+        val windowsDesc = runCatching {
+            windows.joinToString { w -> "${w.root?.packageName ?: "?"}/t${w.type}${if (w.isActive) "*" else ""}" }
+        }.getOrDefault("?")
+        val onPicker = root?.let { isSharePicker(it, msg.packageName) }
+        val field = root?.let { searchField(it, msg.packageName) }?.text?.let { clean(it) }
+        log("Trace: stage=$stage for ${inStage}ms, whatsappRoot=${root != null}, onSendTo=$onPicker, search='${field ?: "-"}', windows=[$windowsDesc]")
     }
 
     /** Chat picker: open WhatsApp's "Send to" list and capture the name of the chat the user taps. */
@@ -429,7 +468,9 @@ class SendAccessibilityService : AccessibilityService() {
     private fun tryClickSend() {
         val msg = current ?: return
         if (clicked) return
-        val root = appRoot(msg.packageName) ?: return
+        val found = appRoot(msg.packageName)
+        if (msg.byName) traceNameFlow(msg, found)
+        val root = found ?: return
         if (msg.byName) {
             tryNameFlow(msg, root)
             return
@@ -695,6 +736,11 @@ class SendAccessibilityService : AccessibilityService() {
                 val recipients = root.findAccessibilityNodeInfosByViewId("${msg.packageName}:id/recipients")
                     ?.firstOrNull()?.text?.let { norm(it) }
                 val footerOk = recipients == null || recipients in names
+                if (now - lastVerifyLog > 1_000) {
+                    lastVerifyLog = now
+                    log("Verify: target=${target?.let { rowName(it) }} checkable=${target?.isCheckable} checked=${target?.isChecked} " +
+                        "ticked=${ticked.map { rowName(it) }} footer='${recipients ?: "-"}' matches=${rows.size}")
+                }
                 if (!verified || !footerOk) {
                     if (now - stageAt < 2_500) return // UI may still be catching up
                     log("Name flow: footer recipients='$recipients'")
@@ -750,6 +796,7 @@ class SendAccessibilityService : AccessibilityService() {
     }
 
     private var lastOffPickerLog = 0L
+    private var lastVerifyLog = 0L
 
     private fun isSharePicker(root: AccessibilityNodeInfo, pkg: String): Boolean =
         root.findAccessibilityNodeInfosByViewId("$pkg:id/contactpicker_row_container")?.isNotEmpty() == true ||
@@ -847,8 +894,17 @@ class SendAccessibilityService : AccessibilityService() {
      * so the tap fallback is what makes them work.
      */
     private fun clickNode(node: AccessibilityNodeInfo): Boolean {
-        clickableAncestor(node)?.let { if (it.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true }
-        if (node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+        val label = node.viewIdResourceName?.substringAfter(":id/") ?: node.className?.toString()?.substringAfterLast('.')
+        clickableAncestor(node)?.let {
+            if (it.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                log("Click $label via clickable parent ${it.viewIdResourceName?.substringAfter(":id/") ?: it.className}")
+                return true
+            }
+        }
+        if (node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+            log("Click $label via its own click action")
+            return true
+        }
         return tapOn(node)
     }
 
