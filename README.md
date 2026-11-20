@@ -1,7 +1,7 @@
-# Sendahead stats
+# SendAhead stats
 
-Updated 2026-11-20T02:40:38+00:00 by the `Stats snapshot` workflow on [yogeshpaliyal/SendAhead](https://github.com/yogeshpaliyal/SendAhead).
-Collected from GitHub's APIs only; the Sendahead app contains no tracking.
+Updated 2026-11-20T02:52:11+00:00 by the `Stats snapshot` workflow on [yogeshpaliyal/SendAhead](https://github.com/yogeshpaliyal/SendAhead).
+Collected from GitHub's APIs only; the SendAhead app contains no tracking.
 
 | Metric | Value |
 | --- | --- |
