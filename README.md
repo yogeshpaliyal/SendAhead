@@ -58,22 +58,38 @@ PIN can never lock you out. Patterns and fingerprint-only locks are not supporte
 - WhatsApp UI updates can break the Send button lookup. Please open an issue if that happens.
 - The number must be on WhatsApp. The target chat doesn't need to be in your contacts.
 
-## Release signing
+## Releases
 
-Release builds are signed with a private upload key that is **never committed**.
+**Every push to `master`** that touches the app builds a debug APK and replaces the
+[Latest master](../../releases/tag/latest-master) pre-release. It installs as *Sendahead Debug*
+(`com.yogeshpaliyal.sendahead.debug`), next to the release app.
 
-1. On your own computer, from the repo root, run `./scripts/create-release-keystore.sh`.
-   It creates `~/Documents/Sendahead-signing/` (keystore, passwords, fingerprints) and, if the
-   GitHub CLI is logged in, uploads the four Actions secrets:
-   `SIGNING_KEYSTORE_BASE64`, `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS`, `SIGNING_KEY_PASSWORD`.
-2. Back up that folder to a password manager or encrypted drive. Losing the key means existing
-   installs can't be updated.
-3. Publish a release by pushing a tag: `git tag v0.2.0 && git push origin v0.2.0`
-   (or run the **Release** workflow manually). It builds a signed APK and AAB and attaches them
-   to a GitHub release.
+**To publish a release**, open Actions > **Release** > Run workflow and pick `patch`, `minor` or `major`. It:
 
-For a signed release build on your machine, copy `keystore.properties` from that folder into the
-repo root (it's git-ignored) and run `./gradlew assembleRelease`.
+1. bumps `versionName`/`versionCode` in `app/build.gradle.kts`
+2. builds the signed APK and AAB, and checks they aren't debug-signed
+3. only then commits the bump, tags it and pushes both in one atomic push
+4. publishes a GitHub release with notes built from the app's commits since the last release,
+   the signing-certificate SHA-256 (for AppVerifier) and file checksums
+5. announces it in Discussions (Announcements category), plus Telegram, Bluesky and Mastodon if
+   their secrets are set, and writes an XDA post to copy from the run summary
+
+A daily **Stats snapshot** saves download counts and stars to the `stats` branch.
+
+### One-time setup
+
+1. On your own computer, run `./scripts/create-release-keystore.sh`. It creates
+   `~/Documents/Sendahead-signing/` (keystore, passwords, fingerprints) and, if the GitHub CLI is
+   logged in, uploads the secrets `SIGNING_KEYSTORE_BASE64`, `SIGNING_STORE_PASSWORD`,
+   `SIGNING_KEY_ALIAS` and `SIGNING_KEY_PASSWORD`. Back that folder up: losing the key means
+   existing installs can't be updated.
+2. Optional: enable Discussions with an Announcements category; add `TELEGRAM_BOT_TOKEN` +
+   `TELEGRAM_CHAT_ID`, `BLUESKY_HANDLE` + `BLUESKY_APP_PASSWORD`, `MASTODON_INSTANCE` +
+   `MASTODON_TOKEN` secrets; a `TRAFFIC_TOKEN` secret for page-view stats; and a `PLAY_URL`
+   repository variable once the app is on Google Play.
+
+For a signed release build on your machine, copy `keystore.properties` from the signing folder
+into the repo root (it's git-ignored) and run `./gradlew assembleRelease`.
 
 ## Build
 

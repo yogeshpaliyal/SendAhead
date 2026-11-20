@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Sendahead Debug</string>
+    <string name="accessibility_label">Sendahead Debug auto-send</string>
+</resources>

@@ -1,0 +1,73 @@
+name: Latest master build
+
+on:
+  push:
+    branches: [master, main]
+    # Only rebuild when something that ends up in the APK (or this build itself) changes.
+    # README, docs and other workflows don't trigger a new debug build.
+    paths:
+      - "app/**"
+      - "gradle/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle.properties"
+      - "gradlew"
+      - "gradlew.bat"
+      - ".github/workflows/latest-master.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Only the newest push matters; cancel older runs so they can't overwrite a newer APK.
+concurrency:
+  group: latest-master
+  cancel-in-progress: true
+
+jobs:
+  # Record the current APK's download count before it is replaced (re-uploading resets it).
+  snapshot:
+    uses: ./.github/workflows/stats.yml
+    secrets: inherit
+
+  build:
+    needs: snapshot
+    # A failed snapshot must never block a build.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v5
+
+      - name: Build debug APK
+        run: ./gradlew --no-configuration-cache assembleDebug
+
+      - name: Rename APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk sendahead-debug.apk
+
+      - name: Publish to "Latest master" release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Passed via env (not inlined) so commit messages can't inject shell.
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          NOTES="Debug build of \`${SHORT_SHA}\` on \`${GITHUB_REF_NAME}\`.
+
+          ${COMMIT_MSG}
+
+          Installs as \"Sendahead Debug\" (com.yogeshpaliyal.sendahead.debug), next to the release app. Signed with the repo's debug keystore, so it updates over earlier builds from this release."
+
+          # Recreate the release so the tag always points at the newest commit.
+          gh release delete latest-master --cleanup-tag --yes || true
+          gh release create latest-master sendahead-debug.apk \
+            --title "Latest master" \
+            --notes "$NOTES" \
+            --target "$GITHUB_SHA" \
+            --prerelease

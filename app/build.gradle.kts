@@ -22,8 +22,9 @@ android {
         applicationId = "com.yogeshpaliyal.sendahead"
         minSdk = 24
         targetSdk = 34
-        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 1
-        versionName = System.getenv("VERSION_NAME") ?: "0.1.0"
+        // Bumped by the Release workflow (Actions > Release > Run workflow). Keep these literal.
+        versionCode = 1
+        versionName = "0.1.0"
     }
 
     signingConfigs {
@@ -46,7 +47,10 @@ android {
     }
 
     buildTypes {
+        // Debug installs next to the release app: its own package and name.
         debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
             signingConfig = signingConfigs.getByName("debug")
         }
         release {
