@@ -114,7 +114,7 @@ class SendAccessibilityService : AccessibilityService() {
             when {
                 isLocked() -> tryUnlock()
                 !launched -> onUnlocked("poll saw unlocked")
-                else -> tryClickSend()
+                ensureWhatsAppInFront() -> tryClickSend()
             }
             handler.postDelayed(this, POLL_MS)
         }
@@ -210,6 +210,9 @@ class SendAccessibilityService : AccessibilityService() {
         lastSeen = emptyList()
         launched = false
         waitingForUnlock = false
+        launchPending = false
+        launchAttempts = 0
+        seenWhatsApp = false
         MessageStore.updateStatus(this, id, Status.SENDING)
         // Keep the keyboard out of the way while typing into WhatsApp's search (restored in finish()).
         if (msg.byName) runCatching { softKeyboardController.showMode = SHOW_MODE_HIDDEN }
@@ -238,8 +241,11 @@ class SendAccessibilityService : AccessibilityService() {
         try {
             startActivity(WhatsAppLauncher.buildIntent(this, msg))
             launched = true
+            launchAttempts++
+            launchedAt = System.currentTimeMillis()
+            seenWhatsApp = false
             stageAt = System.currentTimeMillis() // settle timers start when WhatsApp actually opens
-            log("Opened WhatsApp for id=${msg.id}")
+            log("Opened WhatsApp for id=${msg.id} (attempt $launchAttempts)")
             return true
         } catch (e: ActivityNotFoundException) {
             finish(msg, success = false, error = "Could not open WhatsApp")
@@ -256,16 +262,55 @@ class SendAccessibilityService : AccessibilityService() {
      */
     fun onUnlocked(reason: String) {
         val msg = current ?: return
-        if (launched || clicked || isLocked()) return
-        log("Unlocked ($reason); opening WhatsApp for id=${msg.id}")
+        if (launched || clicked || isLocked() || launchPending) return
+        log("Unlocked ($reason); opening WhatsApp for id=${msg.id} shortly")
         val wasWaiting = waitingForUnlock
         waitingForUnlock = false
         if (wasWaiting) MessageStore.updateStatus(this, msg.id, Status.SENDING, null)
-        if (!launchWhatsApp(msg)) return
-        handler.removeCallbacks(timeout)
+        // Let the lock screen finish going away first: on some phones (seen on MIUI) an app opened
+        // during that animation is dropped and the previous app comes back instead.
+        launchPending = true
         handler.removeCallbacks(poll)
-        handler.postDelayed(poll, 1_500)
-        handler.postDelayed(timeout, TIMEOUT_MS)
+        handler.postDelayed({
+            launchPending = false
+            if (current?.id != msg.id || launched || clicked) return@postDelayed
+            if (isLocked()) {
+                log("Locked again before WhatsApp could open; waiting")
+                handler.postDelayed(poll, POLL_MS)
+                return@postDelayed
+            }
+            if (!launchWhatsApp(msg)) return@postDelayed
+            handler.removeCallbacks(timeout)
+            handler.postDelayed(poll, 1_500)
+            handler.postDelayed(timeout, TIMEOUT_MS)
+        }, 800)
+    }
+
+    private var launchPending = false
+    private var launchAttempts = 0
+    private var launchedAt = 0L
+    private var seenWhatsApp = false
+
+    /**
+     * WhatsApp was asked to open, but is it actually on screen? If not after a few seconds
+     * (the launch was dropped, or another app came back on top), open it again, up to 3 times.
+     * Returns true when WhatsApp is showing and the send can continue.
+     */
+    private fun ensureWhatsAppInFront(): Boolean {
+        val msg = current ?: return false
+        if (appRoot(msg.packageName) != null) {
+            if (!seenWhatsApp) log("WhatsApp is on screen (attempt $launchAttempts)")
+            seenWhatsApp = true
+            return true
+        }
+        // Once the send flow has started inside WhatsApp, never reopen it (that could restart a share).
+        if (seenWhatsApp) return false
+        val waited = System.currentTimeMillis() - launchedAt
+        if (waited > 3_500 && launchAttempts < 3 && !isLocked()) {
+            log("WhatsApp didn't come to the front after ${waited}ms; opening it again")
+            launchWhatsApp(msg)
+        }
+        return false
     }
 
     /** Chat picker: open WhatsApp's "Send to" list and capture the name of the chat the user taps. */
@@ -342,6 +387,10 @@ class SendAccessibilityService : AccessibilityService() {
             return
         }
         if (pkg != msg.packageName) return
+        if (launched && !seenWhatsApp) {
+            seenWhatsApp = true
+            log("WhatsApp is on screen (attempt $launchAttempts)")
+        }
         tryClickSend()
     }
 
@@ -855,6 +904,9 @@ class SendAccessibilityService : AccessibilityService() {
         clicked = false
         unlockAttempted = false
         launched = false
+        launchPending = false
+        seenWhatsApp = false
+        launchAttempts = 0
         waitingForUnlock = false
         // Small gap so WhatsApp settles before the next message.
         handler.postDelayed({ if (current == null) startNext() }, 2_500)
