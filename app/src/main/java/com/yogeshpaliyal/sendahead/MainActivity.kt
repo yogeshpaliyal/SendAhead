@@ -60,6 +60,7 @@ class MainActivity : AppCompatActivity() {
         private const val MENU_AUTO_UNLOCK = 1
         private const val MENU_SHARE_LOG = 2
         private const val MENU_CLEAR_LOG = 3
+        private const val MENU_DRY_RUN = 4
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -106,13 +107,32 @@ class MainActivity : AppCompatActivity() {
         menu.add(0, MENU_AUTO_UNLOCK, 0, "Auto-unlock")
         menu.add(0, MENU_SHARE_LOG, 1, "Share debug log")
         menu.add(0, MENU_CLEAR_LOG, 2, "Clear debug log")
+        if (BuildConfig.DEBUG) {
+            menu.add(0, MENU_DRY_RUN, 3, "Dry run (stop before Send)").isCheckable = true
+        }
         return true
+    }
+
+    override fun onPrepareOptionsMenu(menu: Menu): Boolean {
+        menu.findItem(MENU_DRY_RUN)?.isChecked = DebugSettings.dryRun(this)
+        return super.onPrepareOptionsMenu(menu)
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
             MENU_AUTO_UNLOCK -> { showAutoUnlockDialog(); return true }
             MENU_SHARE_LOG -> { shareLog(); return true }
+            MENU_DRY_RUN -> {
+                val on = !DebugSettings.dryRun(this)
+                DebugSettings.setDryRun(this, on)
+                Toast.makeText(
+                    this,
+                    if (on) "Dry run on: messages stop before Send" else "Dry run off: messages are sent",
+                    Toast.LENGTH_SHORT,
+                ).show()
+                refresh()
+                return true
+            }
             MENU_CLEAR_LOG -> {
                 DebugLog.clear(this)
                 Toast.makeText(this, "Debug log cleared", Toast.LENGTH_SHORT).show()
@@ -151,8 +171,12 @@ class MainActivity : AppCompatActivity() {
                 "$count. Next one goes to ${next.targetLabel} ${relativeWhen(next.timeMillis)}."
             }
         }
-        binding.summary.text = summary
-        binding.summary.visibility = if (summary.isEmpty()) View.GONE else View.VISIBLE
+        // Make a forgotten dry run impossible to miss.
+        val shown = if (DebugSettings.dryRun(this)) {
+            "Dry run is on: messages stop before Send. Turn it off in the menu.\n\n$summary".trim()
+        } else summary
+        binding.summary.text = shown
+        binding.summary.visibility = if (shown.isEmpty()) View.GONE else View.VISIBLE
     }
 
     private fun dayLabel(millis: Long): String {

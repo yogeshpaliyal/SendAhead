@@ -337,6 +337,10 @@ class SendAccessibilityService : AccessibilityService() {
         }
 
         val target = findSendButton(root, msg.packageName) ?: return
+        if (DebugSettings.dryRun(this)) {
+            stopForDryRun(msg, "Send button found (${target.viewIdResourceName ?: target.contentDescription})")
+            return
+        }
         if (clickNode(target)) {
             clicked = true
             log("Clicked send (${target.viewIdResourceName ?: target.contentDescription}) for ${msg.id}")
@@ -587,6 +591,10 @@ class SendAccessibilityService : AccessibilityService() {
                     return
                 }
                 val send = findSendButton(root, msg.packageName) ?: return
+                if (DebugSettings.dryRun(this)) {
+                    stopForDryRun(msg, "'${rowName(target!!)}' is the only selected chat and Send is on screen")
+                    return
+                }
                 if (clickNode(send)) {
                     stage = Stage.SENT_ONCE
                     stageAt = now
@@ -609,6 +617,22 @@ class SendAccessibilityService : AccessibilityService() {
                 }, 2_000)
             }
         }
+    }
+
+    /**
+     * Debug dry run: everything is done except the final Send tap. WhatsApp is left open so the
+     * selection can be checked by eye; the message is marked "Not sent" so it can be rescheduled.
+     */
+    private fun stopForDryRun(msg: ScheduledMessage, what: String) {
+        clicked = true
+        log("DRY RUN: stopped before Send. $what")
+        dumpScreen("dry run")
+        handler.removeCallbacks(poll)
+        handler.removeCallbacks(timeout)
+        handler.postDelayed({
+            clicked = false
+            finish(msg, success = false, error = "Dry run: stopped before Send. $what")
+        }, 300)
     }
 
     /** Leave WhatsApp's share screen without sending and fail the message with [reason]. */
