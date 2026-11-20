@@ -137,13 +137,13 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add app/build.gradle.kts
           git commit -m "Release $TAG (versionCode $CODE)"
-          git tag -a "$TAG" -m "Sendahead $TAG"
+          git tag -a "$TAG" -m "SendAhead $TAG"
           # One atomic push: master and the tag update together or not at all, so a failure
           # can never leave a version bump on master without its tag and release.
           # Fails (and publishes nothing) if master moved while this was building; just run it again.
           git push --atomic origin HEAD:master "refs/tags/$TAG"
 
-      # GitHub's --generate-notes only lists merged pull requests, and Sendahead is committed to
+      # GitHub's --generate-notes only lists merged pull requests, and SendAhead is committed to
       # master directly, so build the notes from commits instead: everything since the last
       # release that changed the app itself (README, docs and CI changes are left out).
       - name: Write release notes
@@ -168,7 +168,7 @@ jobs:
             echo
             echo "## Verify your download"
             echo
-            echo "Signing certificate SHA-256 (the same for every Sendahead release):"
+            echo "Signing certificate SHA-256 (the same for every SendAhead release):"
             echo
             echo '```'
             echo "com.yogeshpaliyal.sendahead"
@@ -191,7 +191,7 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           gh release create "$TAG" "sendahead-$TAG.apk" "sendahead-$TAG.aab" \
-            --title "Sendahead $TAG" \
+            --title "SendAhead $TAG" \
             --notes-file notes.md \
             --verify-tag
 

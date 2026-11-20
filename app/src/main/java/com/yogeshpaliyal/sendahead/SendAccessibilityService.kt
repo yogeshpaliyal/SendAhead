@@ -26,7 +26,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 class SendAccessibilityService : AccessibilityService() {
 
     companion object {
-        private const val TAG = "Sendahead"
+        private const val TAG = "SendAhead"
         private const val TIMEOUT_MS = 45_000L
         private const val POLL_MS = 1_000L
         const val WAITING_FOR_UNLOCK = "Waiting for you to unlock the phone"

@@ -18,7 +18,7 @@ class AlarmReceiver : BroadcastReceiver() {
         if (service == null) {
             val err = "Accessibility service is off"
             MessageStore.updateStatus(context, id, Status.FAILED, err)
-            Notifier.notify(context, id, "Not sent to ${msg.targetLabel}", "$err. Open Sendahead and enable it.")
+            Notifier.notify(context, id, "Not sent to ${msg.targetLabel}", "$err. Open SendAhead and enable it.")
             return
         }
         service.enqueue(id)
@@ -30,7 +30,7 @@ class AlarmReceiver : BroadcastReceiver() {
         if (pm.isInteractive) return
         val wl = pm.newWakeLock(
             PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
-            "Sendahead:send",
+            "SendAhead:send",
         )
         wl.acquire(60_000L)
     }

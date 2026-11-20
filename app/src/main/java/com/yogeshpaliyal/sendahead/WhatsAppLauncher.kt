@@ -36,7 +36,7 @@ object WhatsAppLauncher {
     /** Opens WhatsApp's "Send to…" picker (no jid) so the chat can be chosen by name. */
     fun buildPickerIntent(pkg: String): Intent = Intent(Intent.ACTION_SEND)
         .setType("text/plain")
-        .putExtra(Intent.EXTRA_TEXT, "Sendahead: picking a chat (this is not sent)")
+        .putExtra(Intent.EXTRA_TEXT, "SendAhead: picking a chat (this is not sent)")
         .setPackage(pkg)
 
     private fun buildShareIntent(ctx: Context, msg: ScheduledMessage, withJid: Boolean): Intent {

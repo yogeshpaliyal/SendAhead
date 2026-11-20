@@ -1,10 +1,10 @@
-<img src="docs/icon.png" width="96" alt="Sendahead icon" />
+<img src="docs/icon.png" width="96" alt="SendAhead icon" />
 
-# Sendahead
+# SendAhead
 
 Write it now, send it ahead of time. An open-source, fully offline scheduler for WhatsApp messages on Android, with attachments.
 
-> Sendahead is an independent project. It is not affiliated with, endorsed by or sponsored by WhatsApp or Meta.
+> SendAhead is an independent project. It is not affiliated with, endorsed by or sponsored by WhatsApp or Meta.
 > WhatsApp is a trademark of WhatsApp LLC.
 
 - Schedule text, images, videos, PDFs or any file to a WhatsApp / WhatsApp Business number
@@ -21,7 +21,7 @@ The latest build from `master` is always at
 ## Setup
 
 1. Install the APK.
-2. Open the app and tap **Enable** → turn on *Sendahead auto-send* in Accessibility settings.
+2. Open the app and tap **Enable** → turn on *SendAhead auto-send* in Accessibility settings.
    On Android 13+ a sideloaded app's accessibility toggle may be greyed out. Open
    *App info → ⋮ → Allow restricted settings* first.
 3. Allow **Alarms & reminders** if asked, so messages go out on time.
@@ -61,7 +61,7 @@ PIN can never lock you out. Patterns and fingerprint-only locks are not supporte
 ## Releases
 
 **Every push to `master`** that touches the app builds a debug APK and replaces the
-[Latest master](../../releases/tag/latest-master) pre-release. It installs as *Sendahead Debug*
+[Latest master](../../releases/tag/latest-master) pre-release. It installs as *SendAhead Debug*
 (`com.yogeshpaliyal.sendahead.debug`), next to the release app.
 
 **To publish a release**, open Actions > **Release** > Run workflow and pick `patch`, `minor` or `major`. It:
@@ -79,7 +79,7 @@ A daily **Stats snapshot** saves download counts and stars to the `stats` branch
 ### One-time setup
 
 1. On your own computer, run `./scripts/create-release-keystore.sh`. It creates
-   `~/Documents/Sendahead-signing/` (keystore, passwords, fingerprints) and, if the GitHub CLI is
+   `~/Documents/SendAhead-signing/` (keystore, passwords, fingerprints) and, if the GitHub CLI is
    logged in, uploads the secrets `SIGNING_KEYSTORE_BASE64`, `SIGNING_STORE_PASSWORD`,
    `SIGNING_KEY_ALIAS` and `SIGNING_KEY_PASSWORD`. Back that folder up: losing the key means
    existing installs can't be updated.

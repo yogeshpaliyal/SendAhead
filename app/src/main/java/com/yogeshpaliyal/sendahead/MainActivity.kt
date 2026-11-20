@@ -436,7 +436,7 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Turn on auto-send")
             .setMessage(
                 getString(R.string.accessibility_description) +
-                    "\n\nOn the next screen, open Installed apps (or Downloaded apps), choose Sendahead and turn it on." +
+                    "\n\nOn the next screen, open Installed apps (or Downloaded apps), choose SendAhead and turn it on." +
                     "\n\nIf the switch is greyed out, open App info, tap the menu at the top right and choose Allow restricted settings, then try again."
             )
             .setPositiveButton("Open settings") { _, _ -> startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
@@ -541,7 +541,7 @@ class MainActivity : AppCompatActivity() {
         val send = Intent(Intent.ACTION_SEND)
             .setType("text/plain")
             .putExtra(Intent.EXTRA_STREAM, uri)
-            .putExtra(Intent.EXTRA_SUBJECT, "Sendahead debug log")
+            .putExtra(Intent.EXTRA_SUBJECT, "SendAhead debug log")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         startActivity(Intent.createChooser(send, "Share debug log (includes text from your WhatsApp screen)"))
     }

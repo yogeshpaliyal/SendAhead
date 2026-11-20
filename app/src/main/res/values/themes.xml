@@ -1,6 +1,6 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
 
-    <style name="Base.Theme.Sendahead" parent="Theme.Material3Expressive.DayNight.NoActionBar">
+    <style name="Base.Theme.SendAhead" parent="Theme.Material3Expressive.DayNight.NoActionBar">
         <item name="colorPrimary">@color/primary</item>
         <item name="colorOnPrimary">@color/on_primary</item>
         <item name="colorPrimaryContainer">@color/primary_container</item>
@@ -39,9 +39,9 @@
         <item name="android:windowLightNavigationBar" tools:targetApi="27">@bool/light_system_bars</item>
     </style>
 
-    <style name="Theme.Sendahead" parent="Base.Theme.Sendahead" />
+    <style name="Theme.SendAhead" parent="Base.Theme.SendAhead" />
 
-    <style name="Theme.Sendahead.Transparent" parent="Theme.Material3Expressive.DayNight.NoActionBar">
+    <style name="Theme.SendAhead.Transparent" parent="Theme.Material3Expressive.DayNight.NoActionBar">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowNoTitle">true</item>
@@ -50,7 +50,7 @@
     </style>
 
     <!-- The send time is the one loud element: big, tabular figures. -->
-    <style name="TextAppearance.Sendahead.Time" parent="TextAppearance.Material3.DisplaySmall">
+    <style name="TextAppearance.SendAhead.Time" parent="TextAppearance.Material3.DisplaySmall">
         <item name="android:textSize">38sp</item>
         <item name="android:letterSpacing">-0.02</item>
         <item name="android:fontFeatureSettings">tnum</item>
@@ -58,19 +58,19 @@
         <item name="android:includeFontPadding">false</item>
     </style>
 
-    <style name="TextAppearance.Sendahead.TimeLarge" parent="TextAppearance.Sendahead.Time">
+    <style name="TextAppearance.SendAhead.TimeLarge" parent="TextAppearance.SendAhead.Time">
         <item name="android:textSize">44sp</item>
     </style>
 
-    <style name="TextAppearance.Sendahead.Section" parent="TextAppearance.Material3.TitleSmall">
+    <style name="TextAppearance.SendAhead.Section" parent="TextAppearance.Material3.TitleSmall">
         <item name="android:textColor">?attr/colorPrimary</item>
     </style>
 
-    <style name="TextAppearance.Sendahead.FieldLabel" parent="TextAppearance.Material3.TitleSmall">
+    <style name="TextAppearance.SendAhead.FieldLabel" parent="TextAppearance.Material3.TitleSmall">
         <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
     </style>
 
-    <style name="ShapeAppearance.Sendahead.Tile" parent="">
+    <style name="ShapeAppearance.SendAhead.Tile" parent="">
         <item name="cornerFamily">rounded</item>
         <item name="cornerSize">28dp</item>
     </style>

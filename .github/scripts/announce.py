@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Announce a new Sendahead release.
+"""Announce a new SendAhead release.
 
 Always: a GitHub Discussions post in Announcements, and a ready-to-paste XDA post
 (BBCode) in the workflow summary. Optional, each only when its secrets are set:
@@ -21,7 +21,7 @@ import urllib.request
 
 TAG = os.environ["TAG"]
 REPO = os.environ["REPO"]
-APP = "Sendahead"
+APP = "SendAhead"
 RELEASE = f"https://github.com/{REPO}/releases/tag/{TAG}"
 PLAY = os.environ.get("PLAY_URL", "").strip()
 OBTAINIUM = f"https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/{REPO}"

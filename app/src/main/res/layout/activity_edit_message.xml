@@ -41,7 +41,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="8dp"
                 android:text="To"
-                android:textAppearance="@style/TextAppearance.Sendahead.FieldLabel" />
+                android:textAppearance="@style/TextAppearance.SendAhead.FieldLabel" />
 
             <com.google.android.material.button.MaterialButtonToggleGroup
                 android:id="@+id/targetGroup"
@@ -116,7 +116,7 @@
                 android:layout_marginTop="24dp"
                 android:layout_marginBottom="8dp"
                 android:text="Send with"
-                android:textAppearance="@style/TextAppearance.Sendahead.FieldLabel" />
+                android:textAppearance="@style/TextAppearance.SendAhead.FieldLabel" />
 
             <com.google.android.material.button.MaterialButtonToggleGroup
                 android:id="@+id/appGroup"
@@ -182,7 +182,7 @@
                 android:layout_marginTop="24dp"
                 android:layout_marginBottom="8dp"
                 android:text="When"
-                android:textAppearance="@style/TextAppearance.Sendahead.FieldLabel" />
+                android:textAppearance="@style/TextAppearance.SendAhead.FieldLabel" />
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -200,7 +200,7 @@
                     android:focusable="true"
                     app:cardBackgroundColor="?attr/colorSecondaryContainer"
                     app:cardElevation="0dp"
-                    app:shapeAppearance="@style/ShapeAppearance.Sendahead.Tile"
+                    app:shapeAppearance="@style/ShapeAppearance.SendAhead.Tile"
                     app:strokeWidth="0dp">
 
                     <LinearLayout
@@ -239,7 +239,7 @@
                     android:focusable="true"
                     app:cardBackgroundColor="?attr/colorTertiaryContainer"
                     app:cardElevation="0dp"
-                    app:shapeAppearance="@style/ShapeAppearance.Sendahead.Tile"
+                    app:shapeAppearance="@style/ShapeAppearance.SendAhead.Tile"
                     app:strokeWidth="0dp">
 
                     <LinearLayout
@@ -261,7 +261,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
                             android:maxLines="1"
-                            android:textAppearance="@style/TextAppearance.Sendahead.TimeLarge"
+                            android:textAppearance="@style/TextAppearance.SendAhead.TimeLarge"
                             android:textColor="?attr/colorOnTertiaryContainer" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>

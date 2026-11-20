@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Creates the Sendahead release (upload) keystore on THIS machine and stores the
+# Creates the SendAhead release (upload) keystore on THIS machine and stores the
 # signing secrets in GitHub Actions. Nothing secret is written to the repo.
 #
 #   ./scripts/create-release-keystore.sh [output-dir]
 #
-# Output dir defaults to ~/Documents/Sendahead-signing.
+# Output dir defaults to ~/Documents/SendAhead-signing.
 # Needs: keytool (any JDK), openssl, and optionally gh (logged in) to set the secrets.
 set -euo pipefail
 
 REPO="${REPO:-yogeshpaliyal/SendAhead}"
-DIR="${1:-$HOME/Documents/Sendahead-signing}"
+DIR="${1:-$HOME/Documents/SendAhead-signing}"
 ALIAS="sendahead"
 KS="$DIR/sendahead-release.jks"
 PROPS="$DIR/keystore.properties"
@@ -35,11 +35,11 @@ keytool -genkeypair \
   -keyalg RSA -keysize 4096 \
   -validity 10000 \
   -storepass "$PASS" -keypass "$PASS" \
-  -dname "CN=Yogesh Paliyal, O=Sendahead, C=IN" >/dev/null 2>&1
+  -dname "CN=Yogesh Paliyal, O=SendAhead, C=IN" >/dev/null 2>&1
 chmod 600 "$KS"
 
 cat > "$PROPS" <<EOF
-# Sendahead release signing. Keep this file and the .jks together, private and backed up.
+# SendAhead release signing. Keep this file and the .jks together, private and backed up.
 # For local release builds, copy this file to the repo root as keystore.properties (it is git-ignored).
 storeFile=$KS
 storePassword=$PASS

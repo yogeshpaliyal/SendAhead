@@ -62,7 +62,7 @@ jobs:
 
           ${COMMIT_MSG}
 
-          Installs as \"Sendahead Debug\" (com.yogeshpaliyal.sendahead.debug), next to the release app. Signed with the repo's debug keystore, so it updates over earlier builds from this release."
+          Installs as \"SendAhead Debug\" (com.yogeshpaliyal.sendahead.debug), next to the release app. Signed with the repo's debug keystore, so it updates over earlier builds from this release."
 
           # Recreate the release so the tag always points at the newest commit.
           gh release delete latest-master --cleanup-tag --yes || true

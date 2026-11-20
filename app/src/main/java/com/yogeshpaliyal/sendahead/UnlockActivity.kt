@@ -18,7 +18,7 @@ class UnlockActivity : Activity() {
 
     companion object {
         const val EXTRA_ID = "message_id"
-        private const val TAG = "Sendahead"
+        private const val TAG = "SendAhead"
     }
 
     private var launched = false

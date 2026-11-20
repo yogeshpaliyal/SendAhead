@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Snapshot Sendahead's GitHub stats into CSV files. Runs in GitHub Actions, not in the app.
+"""Snapshot SendAhead's GitHub stats into CSV files. Runs in GitHub Actions, not in the app.
 
 Writes into OUT_DIR (the `stats` branch):
   downloads.csv   one row per release asset per snapshot
@@ -150,10 +150,10 @@ def write_summary(out, repo, stamp, traffic_ok):
     prev = next((r for r in reversed(repo_rows) if r["date"] <= week_ago), None)
 
     lines = [
-        f"# Sendahead stats",
+        f"# SendAhead stats",
         "",
         f"Updated {stamp} by the `Stats snapshot` workflow on [{repo}](https://github.com/{repo}).",
-        "Collected from GitHub's APIs only; the Sendahead app contains no tracking.",
+        "Collected from GitHub's APIs only; the SendAhead app contains no tracking.",
         "",
         "| Metric | Value |",
         "| --- | --- |",

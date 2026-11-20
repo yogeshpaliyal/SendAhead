@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "Sendahead"
+rootProject.name = "SendAhead"
 include(":app")
