@@ -306,11 +306,16 @@ class MainActivity : AppCompatActivity() {
             b.more.setOnClickListener { v ->
                 PopupMenu(ctx, v).apply {
                     if (editable) menu.add(0, 1, 0, "Edit")
-                    menu.add(0, 2, 1, "Delete")
+                    menu.add(0, 3, 1, "Duplicate")
+                    menu.add(0, 2, 2, "Delete")
                     setOnMenuItemClickListener {
                         when (it.itemId) {
                             1 -> openEditor(m.id)
                             2 -> confirmDelete(m)
+                            3 -> startActivity(
+                                Intent(this@MainActivity, EditMessageActivity::class.java)
+                                    .putExtra(EditMessageActivity.EXTRA_COPY_FROM, m.id)
+                            )
                         }
                         true
                     }

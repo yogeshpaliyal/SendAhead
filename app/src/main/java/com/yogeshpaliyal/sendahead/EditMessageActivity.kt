@@ -30,6 +30,8 @@ class EditMessageActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_ID = "id"
+        /** Open a new message pre-filled from this one (recipient, app, text, attachments). */
+        const val EXTRA_COPY_FROM = "copy_from"
     }
 
     private lateinit var binding: ActivityEditMessageBinding
@@ -100,9 +102,11 @@ class EditMessageActivity : AppCompatActivity() {
             }
             binding.message.setText(existing.text)
             attachments += existing.attachments
-            if (existing.packageName == ScheduledMessage.WHATSAPP_BUSINESS) binding.appBusiness.isChecked = true
+            if (existing.packageName == ScheduledMessage.WHATSAPP_BUSINESS) binding.appGroup.check(R.id.appBusiness)
             if (existing.timeMillis > System.currentTimeMillis()) calendar.timeInMillis = existing.timeMillis
             binding.toolbar.title = "Edit message"
+        } else if (copyFrom(intent.getLongExtra(EXTRA_COPY_FROM, -1L))) {
+            binding.toolbar.title = "Copy message"
         } else if (!WhatsAppLauncher.isInstalled(this, ScheduledMessage.WHATSAPP) &&
             WhatsAppLauncher.isInstalled(this, ScheduledMessage.WHATSAPP_BUSINESS)
         ) {
@@ -274,6 +278,47 @@ class EditMessageActivity : AppCompatActivity() {
         val past = calendar.timeInMillis < System.currentTimeMillis()
         binding.save.isEnabled = !past
         binding.save.text = if (past) "Pick a time in the future" else "Schedule"
+    }
+
+    /**
+     * Pre-fills a new message from [sourceId]. Attachments are copied into this message's own
+     * folder, so deleting either message never breaks the other. The time keeps the source's
+     * time of day on its next occurrence; the date and time tiles are what you'd usually change.
+     */
+    private fun copyFrom(sourceId: Long): Boolean {
+        if (sourceId == -1L) return false
+        val source = MessageStore.get(this, sourceId) ?: return false
+        binding.phone.setText(source.phone)
+        if (source.byName) {
+            binding.targetGroup.check(R.id.targetName)
+            binding.chatName.setText(source.chatName)
+        }
+        binding.message.setText(source.text)
+        if (source.packageName == ScheduledMessage.WHATSAPP_BUSINESS) binding.appGroup.check(R.id.appBusiness)
+
+        val fromDir = MessageStore.attachmentDir(this, source.id)
+        val toDir = MessageStore.attachmentDir(this, messageId)
+        source.attachments.forEach { a ->
+            val src = File(fromDir, a.fileName)
+            if (src.exists()) {
+                runCatching { src.copyTo(File(toDir, a.fileName), overwrite = true) }
+                    .onSuccess { attachments += a }
+            }
+        }
+
+        val at = Calendar.getInstance().apply { timeInMillis = source.timeMillis }
+        calendar.timeInMillis = System.currentTimeMillis()
+        calendar.set(Calendar.HOUR_OF_DAY, at.get(Calendar.HOUR_OF_DAY))
+        calendar.set(Calendar.MINUTE, at.get(Calendar.MINUTE))
+        calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
+        if (source.timeMillis > System.currentTimeMillis()) {
+            calendar.timeInMillis = source.timeMillis
+            calendar.add(Calendar.DAY_OF_MONTH, 1) // a copy of an upcoming message: same time, next day
+        } else if (calendar.timeInMillis <= System.currentTimeMillis()) {
+            calendar.add(Calendar.DAY_OF_MONTH, 1)
+        }
+        return true
     }
 
     private fun renderAttachments() {
