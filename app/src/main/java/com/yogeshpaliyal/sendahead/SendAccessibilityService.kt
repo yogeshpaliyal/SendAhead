@@ -211,6 +211,8 @@ class SendAccessibilityService : AccessibilityService() {
         launched = false
         waitingForUnlock = false
         MessageStore.updateStatus(this, id, Status.SENDING)
+        // Keep the keyboard out of the way while typing into WhatsApp's search (restored in finish()).
+        if (msg.byName) runCatching { softKeyboardController.showMode = SHOW_MODE_HIDDEN }
         log("Start send id=$id to=${msg.targetLabel} pkg=${msg.packageName} files=${msg.attachments.size} locked=${isLocked()}")
         if (isLocked()) {
             // Ask Android to dismiss the lock screen (instant for Swipe; shows the PIN prompt otherwise).
@@ -343,11 +345,42 @@ class SendAccessibilityService : AccessibilityService() {
         tryClickSend()
     }
 
+    /**
+     * WhatsApp's own window. While the keyboard is up, some phones report the keyboard as the
+     * active window, so look through all windows instead of trusting rootInActiveWindow.
+     */
+    private fun appRoot(pkg: String): AccessibilityNodeInfo? {
+        rootInActiveWindow?.let { if (it.packageName?.toString() == pkg) return it }
+        return runCatching {
+            windows.filter { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION }
+                .mapNotNull { it.root }
+                .firstOrNull { it.packageName?.toString() == pkg }
+        }.getOrNull()
+    }
+
+    private var lastStateLog = 0L
+
+    /** Every 2s while searching: what the app sees, so a stuck search explains itself in the log. */
+    private fun logSearchState(root: AccessibilityNodeInfo, names: Set<String>, rows: List<AccessibilityNodeInfo>) {
+        val now = System.currentTimeMillis()
+        if (now - lastStateLog < 2_000) return
+        lastStateLog = now
+        val containers = collect(root) { it.viewIdResourceName?.endsWith("contactpicker_row_container") == true }.size
+        val similar = collect(root) { n ->
+            val t = norm(n.text); val d = norm(n.contentDescription)
+            names.any { w -> t.contains(w) || d.contains(w) }
+        }.take(6).joinToString(" | ") { n ->
+            "${n.viewIdResourceName?.substringAfter(":id/") ?: n.className?.toString()?.substringAfterLast('.')}" +
+                " t='${n.text?.let { clean(it) } ?: ""}' d='${n.contentDescription?.let { clean(it) } ?: ""}'" +
+                " click=${n.isClickable} check=${n.isCheckable}/${n.isChecked}"
+        }
+        log("Search state: wanted=$names matches=${rows.size} rowContainers=$containers similar=[$similar]")
+    }
+
     private fun tryClickSend() {
         val msg = current ?: return
         if (clicked) return
-        val root = rootInActiveWindow ?: return
-        if (root.packageName?.toString() != msg.packageName) return
+        val root = appRoot(msg.packageName) ?: return
         if (msg.byName) {
             tryNameFlow(msg, root)
             return
@@ -555,6 +588,7 @@ class SendAccessibilityService : AccessibilityService() {
                 if (now - stageAt < 1_000) return
                 lastSeen = visibleTexts(root)
                 val rows = matchingRows(root, names)
+                logSearchState(root, names, rows)
                 when {
                     rows.isEmpty() -> {
                         // Older saved names look like "Family, You": retry with just "Family" once.
@@ -811,6 +845,7 @@ class SendAccessibilityService : AccessibilityService() {
 
     private fun finish(msg: ScheduledMessage, success: Boolean, error: String?) {
         log("Finish id=${msg.id} success=$success error=$error")
+        runCatching { softKeyboardController.showMode = SHOW_MODE_AUTO }
         handler.removeCallbacks(poll)
         handler.removeCallbacks(timeout)
         if (success) {
