@@ -296,7 +296,9 @@ class SendAccessibilityService : AccessibilityService() {
             }
         } else null
         val raw = byId ?: byBounds ?: if (isRow) src?.contentDescription else null
-        val name = raw?.let { clean(it) }
+        // Rows describe themselves as "Name, subtitle" (e.g. "Family, You" or "Mom, Message yourself").
+        // Turn that back into the chat's name.
+        val name = raw?.let { chatNameFromLabel(clean(it), byId != null || byBounds != null) }
         if (name.isNullOrBlank() || name.length > 100 || name.equals("Search", true)) return true
         pickingPkg = null
         pickedChatName = name
@@ -308,6 +310,21 @@ class SendAccessibilityService : AccessibilityService() {
             )
         )
         return true
+    }
+
+    /**
+     * [label] is either the row's own name ([isName] = true) or its description "Name, subtitle".
+     * Prefer a chat name that's actually on screen; otherwise drop everything after the first ", ".
+     */
+    private fun chatNameFromLabel(label: String, isName: Boolean): String {
+        if (isName || !label.contains(", ")) return label
+        val onScreen = rootInActiveWindow?.let { r ->
+            collect(r) { it.viewIdResourceName?.endsWith("contactpicker_row_name") == true && !it.text.isNullOrBlank() }
+                .map { clean(it.text!!) }
+        }.orEmpty()
+        val match = onScreen.filter { label == it || label.startsWith("$it, ") }.maxByOrNull { it.length }
+        log("Pick label '$label' -> on-screen names $onScreen -> ${match ?: "(prefix)"}")
+        return match ?: label.substringBefore(", ")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
