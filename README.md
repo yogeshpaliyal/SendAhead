@@ -15,10 +15,23 @@ Write it now, send it ahead of time. An open-source, fully offline scheduler for
 - No internet permission, no account, no server: messages and files stay on the phone
 - Uses an Accessibility Service only to tap WhatsApp's **Send** button at the scheduled time
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/home.png" width="200" alt="Scheduled list: messages grouped by day, each with its send time, recipient, text and a Waiting label"><br><sub>Everything waiting to send</sub></td>
+    <td align="center"><img src="docs/screenshots/compose.png" width="200" alt="New message: contact or group, WhatsApp or Business, message, attachments, and date and time tiles with quick-time chips"><br><sub>Write it, pick a time</sub></td>
+    <td align="center"><img src="docs/screenshots/unlock.png" width="200" alt="Send while locked sheet: PIN or password, how it's stored, Turn on button"><br><sub>Sends even when locked</sub></td>
+  </tr>
+</table>
+
 ## Download
 
-The latest build from `master` is always at
-[Releases → latest master](../../releases/tag/latest-master) (debug-signed, installs over previous builds).
+- **Stable:** the APK from the [latest release](../../releases/latest), signed with the release key
+  (certificate SHA-256 in each release's notes)
+- **Automatic updates:** add this repo in [Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/yogeshpaliyal/SendAhead)
+- **Testing:** [Latest master](../../releases/tag/latest-master) is a debug build of every change. It installs as
+  *SendAhead Debug*, next to the stable app.
 
 ## Setup
 
