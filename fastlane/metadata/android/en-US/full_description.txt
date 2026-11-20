@@ -1,0 +1,29 @@
+SendAhead sends your WhatsApp messages later, at the time you pick. Write the message now, choose who it goes to and when, and SendAhead sends it for you.
+
+HOW IT WORKS
+• Write a message, add photos, videos or any file
+• Send to a contact's number, or pick a group straight from WhatsApp
+• Pick a date and time, or tap "In 1 hour", "Tonight" or "Tomorrow"
+• At that minute SendAhead opens WhatsApp and taps Send for you
+
+ON TIME, EVEN WHEN LOCKED
+• Uses exact alarms, so messages go out on the minute
+• With a swipe lock, it wakes and unlocks the screen on its own
+• Optional auto-unlock types your PIN or password (one try per message, off by default)
+• Otherwise the message waits and goes out the moment you unlock
+
+WORKS WITH
+• WhatsApp and WhatsApp Business
+• Contacts, saved or not, and groups
+• Text, images, videos, PDFs and other files
+
+PRIVATE BY DESIGN
+• No internet permission: SendAhead can't send anything anywhere except through WhatsApp on your phone
+• No account, no ads, no analytics
+• Messages and files stay on your phone
+• Open source: https://github.com/yogeshpaliyal/SendAhead
+
+WHY ACCESSIBILITY
+SendAhead uses Android's Accessibility service only to tap WhatsApp's Send button (and, if you turn it on, to type your PIN on the lock screen) at the time you scheduled. It only acts while one of your scheduled messages is being sent, and it never reads or stores your chats.
+
+SendAhead is an independent project and is not affiliated with, endorsed by or sponsored by WhatsApp or Meta. WhatsApp is a trademark of WhatsApp LLC.

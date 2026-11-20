@@ -1,5 +1,7 @@
 <img src="docs/icon.png" width="96" alt="SendAhead icon" />
 
+<img src="fastlane/metadata/android/en-US/images/featureGraphic.png" alt="SendAhead: write it now, send it later" />
+
 # SendAhead
 
 Write it now, send it ahead of time. An open-source, fully offline scheduler for WhatsApp messages on Android, with attachments.
@@ -90,6 +92,19 @@ A daily **Stats snapshot** saves download counts and stars to the `stats` branch
 
 For a signed release build on your machine, copy `keystore.properties` from the signing folder
 into the repo root (it's git-ignored) and run `./gradlew assembleRelease`.
+
+## Store listing
+
+Play Store text and images live in `fastlane/metadata/android/en-US/`. To rebuild the images after
+replacing the app screenshots in `docs/screenshots/` (home, compose, unlock at 1080x2424):
+
+```
+python3 docs/play_screenshots.py docs/screenshots /tmp/play
+python3 docs/play_assets.py docs/screenshots /tmp/play
+for f in /tmp/play/*.svg; do rsvg-convert "$f" -o "${f%.svg}.png"; done
+```
+
+Needs the Inter and TeX Gyre Chorus fonts and `rsvg-convert`.
 
 ## Build
 
