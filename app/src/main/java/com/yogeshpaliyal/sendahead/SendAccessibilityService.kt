@@ -29,6 +29,8 @@ class SendAccessibilityService : AccessibilityService() {
         private const val TAG = "SendAhead"
         private const val TIMEOUT_MS = 45_000L
         private const val POLL_MS = 1_000L
+        /** WhatsApp's message/caption boxes. SendAhead must never type a chat name into these. */
+        private val MESSAGE_FIELD_IDS = listOf("link_message_text_entry", "entry", "caption")
         const val WAITING_FOR_UNLOCK = "Waiting for you to unlock the phone"
 
         private val KEYGUARD_PKGS = setOf("com.android.systemui", "com.android.keyguard")
@@ -751,8 +753,13 @@ class SendAccessibilityService : AccessibilityService() {
                     return
                 }
                 val send = findSendButton(root, msg.packageName) ?: return
+                if (!messageIntact(root, msg)) {
+                    dumpScreen("message box changed")
+                    abortNameFlow(msg, "The message text was changed on WhatsApp's screen, so nothing was sent.")
+                    return
+                }
                 if (DebugSettings.dryRun(this)) {
-                    stopForDryRun(msg, "'${rowName(target!!)}' is the only selected chat and Send is on screen")
+                    stopForDryRun(msg, "'${rowName(target!!)}' is the only selected chat, the message is intact and Send is on screen")
                     return
                 }
                 if (clickNode(send)) {
@@ -814,9 +821,48 @@ class SendAccessibilityService : AccessibilityService() {
         }, 900)
     }
 
-    private fun searchField(root: AccessibilityNodeInfo, pkg: String): AccessibilityNodeInfo? =
+    /**
+     * WhatsApp's search box, and nothing else. Never fall back to "any text field": on the Send to
+     * screen that is the message/caption box (link_message_text_entry), and typing the chat name
+     * there replaced the message that was sent.
+     */
+    private fun searchField(root: AccessibilityNodeInfo, pkg: String): AccessibilityNodeInfo? {
         root.findAccessibilityNodeInfosByViewId("$pkg:id/search_src_text")?.firstOrNull { it.isVisibleToUser }
-            ?: findEditable(root)
+            ?.let { return it }
+        // Other WhatsApp versions: an editable field that says it is a search box.
+        return findNode(root) { n ->
+            val id = n.viewIdResourceName.orEmpty()
+            val hint = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) n.hintText?.toString().orEmpty() else ""
+            n.isEditable && id !in MESSAGE_FIELD_IDS.map { "$pkg:id/$it" } &&
+                (id.contains("search", ignoreCase = true) || hint.contains("search", ignoreCase = true))
+        }
+    }
+
+    /** The share screen's message box (text shares put the message here). */
+    private fun messageField(root: AccessibilityNodeInfo, pkg: String): AccessibilityNodeInfo? =
+        MESSAGE_FIELD_IDS.firstNotNullOfOrNull { id ->
+            root.findAccessibilityNodeInfosByViewId("$pkg:id/$id")?.firstOrNull { it.isVisibleToUser }
+        }
+
+    /**
+     * Before Send: the message box must still hold exactly the scheduled text. Puts it back if
+     * something changed it; returns false (send nothing) if it can't.
+     */
+    private fun messageIntact(root: AccessibilityNodeInfo, msg: ScheduledMessage): Boolean {
+        val field = messageField(root, msg.packageName) ?: return true // no message box on this screen
+        if (msg.attachments.isNotEmpty() && msg.text.isBlank()) return true
+        val now = field.text?.toString().orEmpty()
+        if (now == msg.text) return true
+        log("Message box holds '${now.take(60)}' instead of the scheduled text; restoring it")
+        field.performAction(
+            AccessibilityNodeInfo.ACTION_SET_TEXT,
+            Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, msg.text) },
+        )
+        field.refresh()
+        val after = field.text?.toString().orEmpty()
+        if (after != msg.text) log("Restore failed: message box holds '${after.take(60)}'")
+        return after == msg.text
+    }
 
     /** The saved name, plus "Family" for an older saved "Family, You". */
     private fun acceptedNames(name: String): Set<String> {
