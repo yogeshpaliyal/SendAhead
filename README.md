@@ -1,11 +1,11 @@
 # SendAhead stats
 
-Updated 2026-11-24T06:42:23+00:00 by the `Stats snapshot` workflow on [yogeshpaliyal/SendAhead](https://github.com/yogeshpaliyal/SendAhead).
+Updated 2026-11-24T13:50:25+00:00 by the `Stats snapshot` workflow on [yogeshpaliyal/SendAhead](https://github.com/yogeshpaliyal/SendAhead).
 Collected from GitHub's APIs only; the SendAhead app contains no tracking.
 
 | Metric | Value |
 | --- | --- |
-| Total APK downloads (all releases) | 11 |
+| Total APK downloads (all releases) | 13 |
 | Stars | 0 |
 | Forks | 0 |
 | Open issues and PRs | 0 |
@@ -14,7 +14,7 @@ Collected from GitHub's APIs only; the SendAhead app contains no tracking.
 
 | Release | Downloads |
 | --- | --- |
-| latest-master | 8 |
+| latest-master | 10 |
 | v0.2.0 | 3 |
 
 Raw data: `downloads.csv`, `repo.csv`.
