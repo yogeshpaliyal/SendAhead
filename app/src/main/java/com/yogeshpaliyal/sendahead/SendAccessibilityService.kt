@@ -72,6 +72,32 @@ class SendAccessibilityService : AccessibilityService() {
 
     private val handler = Handler(Looper.getMainLooper())
 
+    /** Moves the send flow to [next] and logs how long the previous stage took and why it moved. */
+    private fun setStage(next: Stage, why: String) {
+        val now = System.currentTimeMillis()
+        log("Stage $stage -> $next after ${now - stageAt}ms ($why)")
+        stage = next
+        stageAt = now
+    }
+
+    private var sendStartedAt = 0L
+    private var eventCount = 0
+    private var lastEventSig = ""
+    private var lastEventLogAt = 0L
+
+    /** Logs WhatsApp/lock screen events, skipping repeats of the same event within 1s. */
+    private fun logEvent(event: AccessibilityEvent) {
+        eventCount++
+        val type = AccessibilityEvent.eventTypeToString(event.eventType).removePrefix("TYPE_")
+        val sig = "$type ${event.packageName} ${event.className}"
+        val now = System.currentTimeMillis()
+        if (sig == lastEventSig && now - lastEventLogAt < 1_000) return
+        lastEventSig = sig
+        lastEventLogAt = now
+        val txt = event.text?.joinToString("|")?.take(60).orEmpty()
+        log("Event #$eventCount $sig${if (txt.isNotBlank()) " text='$txt'" else ""}")
+    }
+
     private fun log(m: String) {
         Log.i(TAG, m)
         DebugLog.log(this, m)
@@ -118,6 +144,7 @@ class SendAccessibilityService : AccessibilityService() {
                 isLocked() -> tryUnlock()
                 !launched -> onUnlocked("poll saw unlocked")
                 ensureWhatsAppInFront() -> tryClickSend()
+                else -> current?.let { traceSend(it, null) } // WhatsApp not in front: still trace
             }
             handler.postDelayed(this, POLL_MS)
         }
@@ -168,6 +195,7 @@ class SendAccessibilityService : AccessibilityService() {
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
+        DebugLog.log(this, "Accessibility service unbound (turned off or killed); current=${current?.id}")
         instance = null
         return super.onUnbind(intent)
     }
@@ -179,10 +207,13 @@ class SendAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    override fun onInterrupt() {}
+    override fun onInterrupt() {
+        DebugLog.log(this, "Accessibility service interrupted")
+    }
 
     fun enqueue(id: Long) {
         handler.post {
+            log("Enqueue id=$id (current=${current?.id}, queued=${queue.toList()})")
             if (current?.id != id && id !in queue) queue.addLast(id)
             if (current == null) startNext()
         }
@@ -192,6 +223,7 @@ class SendAccessibilityService : AccessibilityService() {
         val id = queue.removeFirstOrNull() ?: return
         val msg = MessageStore.get(this, id)
         if (msg == null || msg.status != Status.PENDING) {
+            log("Skip id=$id: ${if (msg == null) "deleted" else "status ${msg.status}"}")
             startNext()
             return
         }
@@ -226,7 +258,16 @@ class SendAccessibilityService : AccessibilityService() {
         MessageStore.updateStatus(this, id, Status.SENDING)
         // Keep the keyboard out of the way while typing into WhatsApp's search (restored in finish()).
         if (msg.byName) runCatching { softKeyboardController.showMode = SHOW_MODE_HIDDEN }
+        sendStartedAt = System.currentTimeMillis()
+        eventCount = 0
         log("Start send id=$id to=${msg.targetLabel} pkg=${msg.packageName} files=${msg.attachments.size} locked=${isLocked()}")
+        log(
+            "Message: byName=${msg.byName} chatName='${msg.chatName.orEmpty()}' phone=${if (msg.byName) "-" else "+" + msg.phone} " +
+                "textChars=${msg.text.length} textStart='${msg.text.take(30).replace('\n', ' ')}' " +
+                "files=[${msg.attachments.joinToString { "${it.mimeType} ${it.displayName}" }}] " +
+                "due ${DebugLog.time(msg.timeMillis)} (${(sendStartedAt - msg.timeMillis) / 1000}s ago), queued=${queue.size}",
+        )
+        log(DebugLog.environment(this))
         log("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, Android ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT}), SendAhead ${BuildConfig.VERSION_NAME}, WhatsApp ${whatsAppVersion(msg.packageName)}")
         if (isLocked()) {
             // Ask Android to dismiss the lock screen (instant for Swipe; shows the PIN prompt otherwise).
@@ -237,6 +278,7 @@ class SendAccessibilityService : AccessibilityService() {
                         .putExtra(UnlockActivity.EXTRA_ID, msg.id)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
                 )
+                log("Phone locked: started the unlock screen")
             } catch (e: Exception) {
                 log("Unlock screen failed to start: ${e.message}")
             }
@@ -250,7 +292,12 @@ class SendAccessibilityService : AccessibilityService() {
     /** Opens WhatsApp for [msg]. Returns false (and fails the message) if it can't. */
     private fun launchWhatsApp(msg: ScheduledMessage): Boolean {
         try {
-            startActivity(WhatsAppLauncher.buildIntent(this, msg))
+            val intent = WhatsAppLauncher.buildIntent(this, msg)
+            log(
+                "Launch intent: action=${intent.action} type=${intent.type} data=${intent.data?.let { "${it.scheme}://${it.host}${it.path}" }} " +
+                    "extras=${intent.extras?.keySet()?.sorted()} flags=0x${Integer.toHexString(intent.flags)}",
+            )
+            startActivity(intent)
             launched = true
             launchAttempts++
             launchedAt = System.currentTimeMillis()
@@ -259,9 +306,11 @@ class SendAccessibilityService : AccessibilityService() {
             log("Opened WhatsApp for id=${msg.id} (attempt $launchAttempts)")
             return true
         } catch (e: ActivityNotFoundException) {
+            log("Launch failed: no activity (${e.message})")
             finish(msg, success = false, error = "Could not open WhatsApp")
         } catch (e: Exception) {
             Log.e(TAG, "launch failed", e)
+            log("Launch failed: ${e.javaClass.simpleName}: ${e.message}")
             finish(msg, success = false, error = e.message ?: "Launch failed")
         }
         return false
@@ -338,7 +387,7 @@ class SendAccessibilityService : AccessibilityService() {
      * Every 2s while sending to a group/contact by name: where the flow is and what's on screen.
      * If one stage lasts more than 10s, also saves one screen dump for that stage.
      */
-    private fun traceNameFlow(msg: ScheduledMessage, root: AccessibilityNodeInfo?) {
+    private fun traceSend(msg: ScheduledMessage, root: AccessibilityNodeInfo?) {
         val now = System.currentTimeMillis()
         if (traceStage != stage) {
             traceStage = stage
@@ -351,12 +400,10 @@ class SendAccessibilityService : AccessibilityService() {
         }
         if (now - lastTrace < 2_000) return
         lastTrace = now
-        val windowsDesc = runCatching {
-            windows.joinToString { w -> "${w.root?.packageName ?: "?"}/t${w.type}${if (w.isActive) "*" else ""}" }
-        }.getOrDefault("?")
+        val windowsDesc = windowsDesc()
         val onPicker = root?.let { isSharePicker(it, msg.packageName) }
         val field = root?.let { searchField(it, msg.packageName) }?.text?.let { clean(it) }
-        log("Trace: stage=$stage for ${inStage}ms, whatsappRoot=${root != null}, onSendTo=$onPicker, search='${field ?: "-"}', windows=[$windowsDesc]")
+        log("Trace: t=${(now - sendStartedAt) / 1000}s locked=${isLocked()} launched=$launched launches=$launchAttempts stage=$stage for ${inStage}ms, sendBtn=${root?.let { findSendButton(it, msg.packageName) != null }}, whatsappRoot=${root != null}, onSendTo=$onPicker, search='${field ?: "-"}', windows=[$windowsDesc]")
     }
 
     /** Chat picker: open WhatsApp's "Send to" list and capture the name of the chat the user taps. */
@@ -426,6 +473,8 @@ class SendAccessibilityService : AccessibilityService() {
         if (clicked) return
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             log("Window: ${event.packageName} / ${event.className}")
+        } else if (event != null) {
+            logEvent(event)
         }
         val pkg = event?.packageName?.toString() ?: return
         if (pkg in KEYGUARD_PKGS) {
@@ -476,7 +525,7 @@ class SendAccessibilityService : AccessibilityService() {
         val msg = current ?: return
         if (clicked) return
         val found = appRoot(msg.packageName)
-        if (msg.byName) traceNameFlow(msg, found)
+        traceSend(msg, found)
         val root = found ?: return
         if (msg.byName) {
             tryNameFlow(msg, root)
@@ -514,6 +563,7 @@ class SendAccessibilityService : AccessibilityService() {
         val root = keyguardRoot()
         val firstDigit = secret?.value?.firstOrNull { it.isDigit() } ?: '1'
         val inputVisible = root != null && (findDigitKey(root, firstDigit) != null || findEditable(root) != null)
+        logUnlockState(root, secret, inputVisible)
         if (!inputVisible) {
             // Lock screen shows the clock first (Samsung, Xiaomi, …): swipe up to bring up the PIN/password screen.
             swipeUp()
@@ -560,7 +610,8 @@ class SendAccessibilityService : AccessibilityService() {
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, 250))
             .build()
-        dispatchGesture(gesture, null, null)
+        val ok = dispatchGesture(gesture, null, null)
+        if (!ok) log("Swipe gesture was rejected (gestures allowed=${serviceInfo?.capabilities?.and(32) != 0})")
         log("Swiped up on lock screen ($swipeCount)")
     }
 
@@ -569,12 +620,18 @@ class SendAccessibilityService : AccessibilityService() {
         if (index >= pin.length) {
             // Many lock screens auto-confirm; otherwise press Enter/OK.
             handler.postDelayed({
-                if (isLocked()) keyguardRoot()?.let { findEnterKey(it) }?.let { clickNode(it) }
+                if (isLocked()) {
+                    val enter = keyguardRoot()?.let { findEnterKey(it) }
+                    log("Auto-unlock: PIN typed, still locked; enter key ${if (enter != null) "found" else "not found"}")
+                    enter?.let { clickNode(it) }
+                }
                 checkUnlockResult()
             }, 600)
             return
         }
-        keyguardRoot()?.let { findDigitKey(it, pin[index]) }?.let { clickNode(it) }
+        val key = keyguardRoot()?.let { findDigitKey(it, pin[index]) }
+        if (key == null) log("Auto-unlock: key ${index + 1}/${pin.length} not found on screen")
+        else if (!clickNode(key)) log("Auto-unlock: key ${index + 1}/${pin.length} click failed")
         handler.postDelayed({ typePin(pin, index + 1) }, 150)
     }
 
@@ -654,7 +711,10 @@ class SendAccessibilityService : AccessibilityService() {
             if (now - lastOffPickerLog > 3_000) {
                 lastOffPickerLog = now
                 lastSeen = visibleTexts(root)
-                log("Name flow: not on the Send to screen; waiting without touching anything")
+                log(
+                    "Name flow: not on the Send to screen; waiting without touching anything. " +
+                        "class=${root.className} ids=${viewIds(root).take(15)} texts=${lastSeen.take(8)}",
+                )
             }
             return
         }
@@ -672,11 +732,17 @@ class SendAccessibilityService : AccessibilityService() {
                         log("Name flow: search click #$searchClicks ok=${clickNode(search)}")
                     } else {
                         lastSeen = visibleTexts(root)
+                        if (now - lastOffPickerLog > 3_000) {
+                            lastOffPickerLog = now
+                            log(
+                                "Name flow: no search box or search button (clicks=$searchClicks). " +
+                                    "ids=${viewIds(root).take(20)} texts=${lastSeen.take(8)}",
+                            )
+                        }
                     }
                     return
                 }
-                stage = Stage.SEARCHING
-                stageAt = now
+                setStage(Stage.SEARCHING, "search box is open")
             }
             Stage.SEARCHING -> {
                 val field = searchField(root, msg.packageName) ?: return
@@ -721,8 +787,7 @@ class SendAccessibilityService : AccessibilityService() {
                         }
                         if (now - candidateSince < 400) return
                         if (clickNode(row)) {
-                            stage = Stage.SELECTED
-                            stageAt = now
+                            setStage(Stage.SELECTED, "tapped the only matching row")
                             log("Name flow: tapped row '${rowName(row)}' at $bounds")
                         }
                     }
@@ -770,8 +835,7 @@ class SendAccessibilityService : AccessibilityService() {
                     return
                 }
                 if (clickNode(send)) {
-                    stage = Stage.SENT_ONCE
-                    stageAt = now
+                    setStage(Stage.SENT_ONCE, "clicked Send on the picker")
                     log("Name flow: verified '${rowName(target!!)}' is the only selected chat; clicked send")
                 }
             }
@@ -808,6 +872,34 @@ class SendAccessibilityService : AccessibilityService() {
             finish(msg, success = false, error = "Dry run: stopped before Send. $what")
         }, 300)
     }
+
+    /** View ids on screen (without the package prefix), to see which WhatsApp screen this is. */
+    private fun viewIds(root: AccessibilityNodeInfo): List<String> {
+        val out = LinkedHashSet<String>()
+        fun walk(n: AccessibilityNodeInfo?, depth: Int) {
+            if (n == null || depth > 30 || out.size >= 60) return
+            n.viewIdResourceName?.let { out += it.substringAfter(":id/") }
+            for (i in 0 until n.childCount) walk(n.getChild(i), depth + 1)
+        }
+        walk(root, 0)
+        return out.toList()
+    }
+
+    private var lastUnlockLog = 0L
+
+    private fun logUnlockState(root: AccessibilityNodeInfo?, secret: UnlockSecret.Secret?, inputVisible: Boolean) {
+        val now = System.currentTimeMillis()
+        if (now - lastUnlockLog < 2_000) return
+        lastUnlockLog = now
+        log(
+            "Lock screen: keyguardWindow=${root?.packageName} inputVisible=$inputVisible autoUnlock=${secret?.type ?: "off"} " +
+                "attempted=$unlockAttempted swipes=$swipeCount windows=[${windowsDesc()}]",
+        )
+    }
+
+    private fun windowsDesc(): String = runCatching {
+        windows.joinToString { w -> "${w.root?.packageName ?: "?"}/t${w.type}${if (w.isActive) "*" else ""}" }
+    }.getOrDefault("?")
 
     private var lastOffPickerLog = 0L
     private var lastVerifyLog = 0L
@@ -998,7 +1090,11 @@ class SendAccessibilityService : AccessibilityService() {
     }
 
     private fun finish(msg: ScheduledMessage, success: Boolean, error: String?) {
-        log("Finish id=${msg.id} success=$success error=$error")
+        log(
+            "Finish id=${msg.id} success=$success after ${(System.currentTimeMillis() - sendStartedAt) / 1000}s " +
+                "stage=$stage launches=$launchAttempts sawWhatsApp=$seenWhatsApp sawSendTo=$sawPicker " +
+                "searchClicks=$searchClicks typed=$typedSearch events=$eventCount error=$error",
+        )
         runCatching { softKeyboardController.showMode = SHOW_MODE_AUTO }
         handler.removeCallbacks(poll)
         handler.removeCallbacks(timeout)

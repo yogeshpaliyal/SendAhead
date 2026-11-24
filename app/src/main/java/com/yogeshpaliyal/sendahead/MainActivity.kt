@@ -589,6 +589,10 @@ class MainActivity : AppCompatActivity() {
         getSharedPreferences("settings", Context.MODE_PRIVATE).edit().putBoolean("lock_setup_skipped", v).apply()
 
     private fun shareLog() {
+        if (DebugLog.file(this).exists()) {
+            DebugLog.log(this, "Log shared. SendAhead ${BuildConfig.VERSION_NAME}, ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}")
+            DebugLog.log(this, DebugLog.environment(this))
+        }
         val f = DebugLog.file(this)
         if (!f.exists() || f.length() == 0L) {
             Toast.makeText(this, "The debug log is empty. Try sending a message first.", Toast.LENGTH_SHORT).show()
