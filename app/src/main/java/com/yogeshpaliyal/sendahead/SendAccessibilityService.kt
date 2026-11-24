@@ -49,6 +49,7 @@ class SendAccessibilityService : AccessibilityService() {
     private var stageAt = 0L
     private var pickingPkg: String? = null
     private var searchClicks = 0
+    private var sawPicker = false
     private var typedSearch = false
     /** What gets typed into WhatsApp's search box (may fall back to a shorter legacy name). */
     private var searchTerm = ""
@@ -141,6 +142,9 @@ class SendAccessibilityService : AccessibilityService() {
             val error = when {
                 isLocked() && unlockAttempted -> "Phone stayed locked (auto-unlock didn't work)"
                 isLocked() -> "Phone was locked"
+                    it.byName && !sawPicker ->
+                    "WhatsApp's \"Send to\" screen never appeared. " +
+                        "On screen: ${lastSeen.joinToString(" | ").take(400)}"
                 it.byName && (stage == Stage.FIND_CHAT || stage == Stage.SEARCHING) ->
                     "Chat \"${it.chatName}\" not found in WhatsApp " +
                         "(search ${if (searchClicks > 0) "opened" else "not found"}, " +
@@ -204,6 +208,7 @@ class SendAccessibilityService : AccessibilityService() {
         stage = Stage.FIND_CHAT
         stageAt = System.currentTimeMillis()
         searchClicks = 0
+        sawPicker = false
         typedSearch = false
         searchTerm = msg.chatName?.trim().orEmpty()
         triedShortName = false
@@ -648,10 +653,12 @@ class SendAccessibilityService : AccessibilityService() {
         if (!isSharePicker(root, msg.packageName)) {
             if (now - lastOffPickerLog > 3_000) {
                 lastOffPickerLog = now
+                lastSeen = visibleTexts(root)
                 log("Name flow: not on the Send to screen; waiting without touching anything")
             }
             return
         }
+        if (!sawPicker) { sawPicker = true; log("Name flow: on the Send to screen") }
         when (stage) {
             Stage.FIND_CHAT -> {
                 // Let the picker finish loading its sections before touching anything.
