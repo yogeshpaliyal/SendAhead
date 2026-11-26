@@ -269,35 +269,61 @@ class SendAccessibilityService : AccessibilityService() {
         )
         log(DebugLog.environment(this))
         log("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, Android ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT}), SendAhead ${BuildConfig.VERSION_NAME}, WhatsApp ${whatsAppVersion(msg.packageName)}")
-        if (isLocked()) {
-            // Ask Android to dismiss the lock screen (instant for Swipe; shows the PIN prompt otherwise).
-            // WhatsApp is opened by onUnlocked(), whichever way the phone actually gets unlocked.
-            try {
-                startActivity(
-                    Intent(this, UnlockActivity::class.java)
-                        .putExtra(UnlockActivity.EXTRA_ID, msg.id)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
-                )
-                log("Phone locked: started the unlock screen")
-            } catch (e: Exception) {
-                log("Unlock screen failed to start: ${e.message}")
-            }
-        } else if (!launchWhatsApp(msg)) {
-            return
-        }
+        // Always go through SendAhead's own invisible screen: Android (and MIUI in particular)
+        // silently drops app launches from the background, but allows them from a visible activity.
+        // If locked, that screen also asks Android to dismiss the lock screen; WhatsApp is opened
+        // once the phone is unlocked, whichever way that happens.
+        startLaunchScreen(msg, if (isLocked()) "phone locked" else "phone unlocked")
         handler.postDelayed(poll, 1_500)
         handler.postDelayed(timeout, TIMEOUT_MS)
+    }
+
+    /** SendAhead's invisible screen that is in front while WhatsApp is being opened. */
+    private var launchScreen: java.lang.ref.WeakReference<UnlockActivity>? = null
+
+    fun onLaunchScreenShown(activity: UnlockActivity) {
+        launchScreen = java.lang.ref.WeakReference(activity)
+        log("Launch screen is in front (locked=${isLocked()})")
+    }
+
+    fun onLaunchScreenGone(activity: UnlockActivity) {
+        if (launchScreen?.get() === activity) launchScreen = null
+    }
+
+    private fun liveLaunchScreen(): UnlockActivity? =
+        launchScreen?.get()?.takeIf { !it.isFinishing && !it.isDestroyed }
+
+    private fun startLaunchScreen(msg: ScheduledMessage, why: String) {
+        try {
+            startActivity(
+                Intent(this, UnlockActivity::class.java)
+                    .putExtra(UnlockActivity.EXTRA_ID, msg.id)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+            )
+            log("Started the launch screen ($why)")
+        } catch (e: Exception) {
+            log("Launch screen failed to start ($why): ${e.message}")
+        }
     }
 
     /** Opens WhatsApp for [msg]. Returns false (and fails the message) if it can't. */
     private fun launchWhatsApp(msg: ScheduledMessage): Boolean {
         try {
             val intent = WhatsAppLauncher.buildIntent(this, msg)
+            // Launch from the visible SendAhead screen when there is one: a launch from the
+            // background service is dropped on MIUI unless "background pop-ups" is allowed.
+            val screen = liveLaunchScreen()
             log(
                 "Launch intent: action=${intent.action} type=${intent.type} data=${intent.data?.let { "${it.scheme}://${it.host}${it.path}" }} " +
                     "extras=${intent.extras?.keySet()?.sorted()} flags=0x${Integer.toHexString(intent.flags)}",
             )
-            startActivity(intent)
+            if (screen != null) {
+                screen.startActivity(intent)
+                screen.finishSoon()
+            } else {
+                startActivity(intent)
+            }
+            log("Launch via ${if (screen != null) "the launch screen" else "the background service (may be blocked)"}")
             launched = true
             launchAttempts++
             launchedAt = System.currentTimeMillis()
@@ -368,7 +394,14 @@ class SendAccessibilityService : AccessibilityService() {
         val waited = System.currentTimeMillis() - launchedAt
         if (waited > 3_500 && launchAttempts < 3 && !isLocked()) {
             log("WhatsApp didn't come to the front after ${waited}ms; opening it again")
-            launchWhatsApp(msg)
+            if (liveLaunchScreen() != null) {
+                launchWhatsApp(msg)
+            } else {
+                // Bring SendAhead's screen to the front first, then open WhatsApp from it.
+                launched = false
+                launchedAt = System.currentTimeMillis()
+                startLaunchScreen(msg, "relaunch #$launchAttempts")
+            }
         }
         return false
     }
@@ -786,6 +819,11 @@ class SendAccessibilityService : AccessibilityService() {
                             return
                         }
                         if (now - candidateSince < 400) return
+                        if (row.isCheckable && row.isChecked) {
+                            // Already ticked (e.g. left over from an earlier share). Tapping would untick it.
+                            setStage(Stage.SELECTED, "the only matching row was already selected; not tapping it")
+                            return
+                        }
                         if (clickNode(row)) {
                             setStage(Stage.SELECTED, "tapped the only matching row")
                             log("Name flow: tapped row '${rowName(row)}' at $bounds")
@@ -1057,6 +1095,10 @@ class SendAccessibilityService : AccessibilityService() {
         val r = Rect()
         node.getBoundsInScreen(r)
         if (r.isEmpty) return false
+        coveringWindow(node, r.centerX(), r.centerY())?.let {
+            log("Not tapping ${node.viewIdResourceName ?: node.className}: covered by $it (e.g. a notification); will retry")
+            return false
+        }
         val path = Path().apply { moveTo(r.exactCenterX(), r.exactCenterY()) }
         val ok = dispatchGesture(
             GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 60)).build(),
@@ -1065,6 +1107,25 @@ class SendAccessibilityService : AccessibilityService() {
         log("Tap at ${r.centerX()},${r.centerY()} on ${node.viewIdResourceName ?: node.className} ok=$ok")
         return ok
     }
+
+    /**
+     * Another app's window (a heads-up notification, a bubble, a system dialog) lying on top of
+     * the point a tap would hit. A tap there would land on that window instead.
+     */
+    private fun coveringWindow(node: AccessibilityNodeInfo, x: Int, y: Int): String? = runCatching {
+        val pkg = node.packageName?.toString()
+        val all = windows
+        val appLayer = all.firstOrNull { it.root?.packageName?.toString() == pkg }?.layer ?: return@runCatching null
+        all.firstOrNull { w ->
+            val b = Rect().also { w.getBoundsInScreen(it) }
+            w.layer > appLayer && b.contains(x, y) &&
+                w.type != android.view.accessibility.AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY &&
+                w.root?.packageName?.toString() != pkg
+        }?.let { w ->
+            val b = Rect().also { w.getBoundsInScreen(it) }
+            "${w.root?.packageName ?: "?"} window type ${w.type} at $b"
+        }
+    }.getOrNull()
 
     /** The whole row for a matched name node (bigger, reliable tap target). */
     private fun rowContainer(node: AccessibilityNodeInfo): AccessibilityNodeInfo {

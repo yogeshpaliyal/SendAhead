@@ -22,6 +22,7 @@ class UnlockActivity : Activity() {
     }
 
     private var launched = false
+    private val handler = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,31 +39,40 @@ class UnlockActivity : Activity() {
             )
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        SendAccessibilityService.instance?.onLaunchScreenShown(this)
+        // Never linger: WhatsApp normally opens from here within a second or two.
+        handler.postDelayed({ if (!isFinishing) finish() }, 20_000)
 
         val km = getSystemService(KeyguardManager::class.java)
         if (!km.isKeyguardLocked) {
-            launchWhatsApp()
+            onUnlocked()
             return
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             km.requestDismissKeyguard(this, object : KeyguardManager.KeyguardDismissCallback() {
-                override fun onDismissSucceeded() = launchWhatsApp()
-                override fun onDismissCancelled() = finish()
-                override fun onDismissError() = finish()
+                override fun onDismissSucceeded() = onUnlocked()
+                override fun onDismissCancelled() {
+                    DebugLog.log(this@UnlockActivity, "Launch screen: unlock cancelled")
+                    finish()
+                }
+                override fun onDismissError() {
+                    DebugLog.log(this@UnlockActivity, "Launch screen: unlock error")
+                    finish()
+                }
             })
         } else {
             // FLAG_DISMISS_KEYGUARD handles non-secure locks; give it a moment.
-            Handler(Looper.getMainLooper()).postDelayed({ launchWhatsApp() }, 600)
+            handler.postDelayed({ onUnlocked() }, 600)
         }
     }
 
-    private fun launchWhatsApp() {
+    /** The phone is unlocked. Stay visible: the service opens WhatsApp from this screen. */
+    private fun onUnlocked() {
         if (launched) return
         launched = true
         val service = SendAccessibilityService.instance
         if (service != null) {
-            // The service opens WhatsApp exactly once, however the phone got unlocked.
             service.onUnlocked("unlock screen callback")
         } else {
             val msg = MessageStore.get(this, intent.getLongExtra(EXTRA_ID, -1L))
@@ -73,8 +83,23 @@ class UnlockActivity : Activity() {
                     Log.e(TAG, "launch failed", e)
                 }
             }
+            finishSoon()
         }
-        finish()
-        overridePendingTransition(0, 0)
+    }
+
+    /** Called right after WhatsApp was started from here. */
+    fun finishSoon() {
+        handler.postDelayed({
+            if (!isFinishing) {
+                finish()
+                overridePendingTransition(0, 0)
+            }
+        }, 1_500)
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
+        SendAccessibilityService.instance?.onLaunchScreenGone(this)
+        super.onDestroy()
     }
 }

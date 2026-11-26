@@ -362,6 +362,18 @@ class MainActivity : AppCompatActivity() {
                 startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             },
         )
+        if (Miui.isMiui) {
+            // Without this, MIUI silently blocks SendAhead from opening WhatsApp when it isn't on screen.
+            val popups = Miui.backgroundStartAllowed(this)
+            val lockOk = Miui.showWhenLockedAllowed(this)
+            if (popups != null || lockOk != null) {
+                items += SetupItem(
+                    popups != false && lockOk != false,
+                    "Allow pop-ups on Xiaomi",
+                    "In Other permissions, turn on \"Open new windows while running in the background\" and \"Show on Lock screen\"",
+                ) { Miui.openPermissions(this) }
+            }
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             items += SetupItem(Scheduler.canScheduleExact(this), "Allow alarms and reminders", "Sends on the minute, not minutes late") {
                 startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName")))

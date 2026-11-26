@@ -64,7 +64,8 @@ object DebugLog {
             "battery=$level plugged=$plugged powerSave=${pm.isPowerSaveMode} doze=${pm.isDeviceIdleMode} " +
             "ignoresBatteryOpt=${pm.isIgnoringBatteryOptimizations(ctx.packageName)} exactAlarms=$exact " +
             "a11yEnabled=$a11y a11yConnected=${SendAccessibilityService.instance != null} " +
-            "autoUnlock=$unlock dryRun=${DebugSettings.dryRun(ctx)}"
+            "autoUnlock=$unlock dryRun=${DebugSettings.dryRun(ctx)} overlay=${Settings.canDrawOverlays(ctx)}" +
+            (if (Miui.isMiui) " miuiBackgroundPopups=${Miui.backgroundStartAllowed(ctx)} miuiShowOnLock=${Miui.showWhenLockedAllowed(ctx)}" else "")
     }.getOrElse { "Env: unavailable (${it.message})" }
 
     fun clear(ctx: Context) = synchronized(lock) {
