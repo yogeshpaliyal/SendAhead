@@ -46,3 +46,6 @@ recorded_at,tag,asset_id,asset_name,download_count
 2026-11-26T06:39:58+00:00,latest-master,786034282,sendahead-debug.apk,4
 2026-11-26T06:39:58+00:00,v0.2.0,770400472,sendahead-v0.2.0.aab,1
 2026-11-26T06:39:58+00:00,v0.2.0,770400470,sendahead-v0.2.0.apk,2
+2026-11-26T12:42:57+00:00,latest-master,794638173,sendahead-debug.apk,1
+2026-11-26T12:42:57+00:00,v0.2.0,770400472,sendahead-v0.2.0.aab,1
+2026-11-26T12:42:57+00:00,v0.2.0,770400470,sendahead-v0.2.0.apk,2
